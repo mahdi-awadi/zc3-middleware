@@ -1,0 +1,322 @@
+// Package api exposes the C3 panel as a REST + SSE HTTP service.
+//
+// Endpoints:
+//
+//	GET    /healthz                 liveness
+//	GET    /device                  panel identity/params
+//	GET    /params?keys=a,b         read device params
+//	PUT    /params                  {"k":"v",...} set device params
+//	POST   /time/sync               sync panel clock to server time
+//	GET    /cards                   list enrolled cards
+//	POST   /cards                   enroll/update a card (Card JSON)
+//	DELETE /cards/{cardNo}          revoke a card
+//	POST   /doors/{n}/open          {"seconds":5} pulse a lock relay
+//	POST   /aux/{n}                 {"on":true,"seconds":5} drive AUX output
+//	POST   /alarm/cancel            cancel alarm state
+//	GET    /events                  Server-Sent Events realtime stream
+package api
+
+import (
+	"crypto/subtle"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/awadi/zk-c3-middleware/internal/c3"
+)
+
+// Options configures the HTTP server. All values come from config (no defaults
+// hardcoded here).
+type Options struct {
+	APIKey          string
+	CORSOrigins     []string
+	EventBufferSize int
+	DoorDefaultSecs int
+	Logger          *slog.Logger
+}
+
+type Server struct {
+	panel c3.Panel
+	opt   Options
+	log   *slog.Logger
+
+	ready func() bool // reports panel-link readiness; nil => always ready
+
+	mu   sync.Mutex
+	subs map[chan c3.Event]struct{} // SSE subscribers
+}
+
+// SetReadiness registers a probe used by GET /readyz (e.g. panel link state).
+func (s *Server) SetReadiness(fn func() bool) { s.ready = fn }
+
+func New(panel c3.Panel, opt Options) *Server {
+	if opt.EventBufferSize <= 0 {
+		opt.EventBufferSize = 64
+	}
+	if opt.DoorDefaultSecs <= 0 {
+		opt.DoorDefaultSecs = 5
+	}
+	if opt.Logger == nil {
+		opt.Logger = slog.Default()
+	}
+	return &Server{panel: panel, opt: opt, log: opt.Logger, subs: map[chan c3.Event]struct{}{}}
+}
+
+func (s *Server) Routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /readyz", s.handleReady)
+	mux.HandleFunc("GET /device", s.handleDevice)
+	mux.HandleFunc("GET /params", s.handleGetParams)
+	mux.HandleFunc("PUT /params", s.handleSetParams)
+	mux.HandleFunc("POST /time/sync", s.handleTimeSync)
+	mux.HandleFunc("GET /cards", s.handleListCards)
+	mux.HandleFunc("POST /cards", s.handleSetCard)
+	mux.HandleFunc("DELETE /cards/{cardNo}", s.handleDeleteCard)
+	mux.HandleFunc("POST /doors/{n}/open", s.handleOpenDoor)
+	mux.HandleFunc("POST /aux/{n}", s.handleAux)
+	mux.HandleFunc("POST /alarm/cancel", s.handleCancelAlarm)
+	mux.HandleFunc("GET /events", s.handleEvents)
+	return s.cors(s.auth(logMW(s.log, mux)))
+}
+
+// Fanout receives events from the panel loop and pushes them to SSE subscribers.
+func (s *Server) Fanout(ev c3.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ch := range s.subs {
+		select {
+		case ch <- ev:
+		default: // drop for slow consumers, never block the panel loop
+		}
+	}
+}
+
+// ---- handlers ----
+
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if s.ready != nil && !s.ready() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "panel_disconnected"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ready"})
+}
+
+func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
+	info, err := s.panel.DeviceInfo(r.Context())
+	respond(w, info, err)
+}
+
+func (s *Server) handleGetParams(w http.ResponseWriter, r *http.Request) {
+	var keys []string
+	if q := r.URL.Query().Get("keys"); q != "" {
+		keys = splitComma(q)
+	}
+	m, err := s.panel.GetParams(r.Context(), keys...)
+	respond(w, m, err)
+}
+
+func (s *Server) handleSetParams(w http.ResponseWriter, r *http.Request) {
+	var kv map[string]string
+	if !decode(w, r, &kv) {
+		return
+	}
+	err := s.panel.SetParams(r.Context(), kv)
+	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleTimeSync(w http.ResponseWriter, r *http.Request) {
+	err := s.panel.SyncTime(r.Context(), time.Now())
+	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
+	cards, err := s.panel.ListCards(r.Context())
+	respond(w, cards, err)
+}
+
+func (s *Server) handleSetCard(w http.ResponseWriter, r *http.Request) {
+	var c c3.Card
+	if !decode(w, r, &c) {
+		return
+	}
+	err := s.panel.SetCard(r.Context(), c)
+	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
+	err := s.panel.DeleteCard(r.Context(), r.PathValue("cardNo"))
+	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleOpenDoor(w http.ResponseWriter, r *http.Request) {
+	door, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "bad door number"})
+		return
+	}
+	var body struct {
+		Seconds int `json:"seconds"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Seconds <= 0 {
+		body.Seconds = s.opt.DoorDefaultSecs
+	}
+	err = s.panel.OpenDoor(r.Context(), door, body.Seconds)
+	respond(w, map[string]any{"status": "ok", "door": door, "seconds": body.Seconds}, err)
+}
+
+func (s *Server) handleAux(w http.ResponseWriter, r *http.Request) {
+	idx, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "bad aux number"})
+		return
+	}
+	var body struct {
+		On      bool `json:"on"`
+		Seconds int  `json:"seconds"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	err = s.panel.SetAux(r.Context(), idx, body.On, body.Seconds)
+	respond(w, map[string]string{"status": "ok"}, err)
+}
+
+func (s *Server) handleCancelAlarm(w http.ResponseWriter, r *http.Request) {
+	respond(w, map[string]string{"status": "ok"}, s.panel.CancelAlarm(r.Context()))
+}
+
+// handleEvents streams realtime panel events to the client as SSE.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", 500)
+		return
+	}
+	ch := make(chan c3.Event, s.opt.EventBufferSize)
+	s.mu.Lock()
+	s.subs[ch] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.subs, ch)
+		s.mu.Unlock()
+	}()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	fl.Flush()
+
+	ping := time.NewTicker(15 * time.Second)
+	defer ping.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev := <-ch:
+			b, _ := json.Marshal(ev)
+			w.Write([]byte("event: access\ndata: "))
+			w.Write(b)
+			w.Write([]byte("\n\n"))
+			fl.Flush()
+		case <-ping.C:
+			w.Write([]byte(": ping\n\n"))
+			fl.Flush()
+		}
+	}
+}
+
+// ---- middleware & helpers ----
+
+func (s *Server) auth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.opt.APIKey != "" && r.URL.Path != "/healthz" {
+			if subtleCompare(r.Header.Get("Authorization"), "Bearer "+s.opt.APIKey) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// cors applies a permissive-but-scoped CORS policy for the configured origins.
+func (s *Server) cors(next http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	for _, o := range s.opt.CORSOrigins {
+		allowed[o] = true
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && (allowed["*"] || allowed[origin]) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func logMW(log *slog.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Info("http", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start).String())
+	})
+}
+
+func respond(w http.ResponseWriter, v any, err error) {
+	if err != nil {
+		writeJSON(w, 502, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, v)
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(v)
+}
+
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid json: " + err.Error()})
+		return false
+	}
+	return true
+}
+
+// subtleCompare reports whether got equals want in constant time.
+func subtleCompare(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+func splitComma(s string) []string {
+	var out []string
+	cur := ""
+	for _, r := range s {
+		if r == ',' {
+			if cur != "" {
+				out = append(out, cur)
+			}
+			cur = ""
+			continue
+		}
+		cur += string(r)
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
+}

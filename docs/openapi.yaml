@@ -1,0 +1,318 @@
+openapi: 3.1.0
+info:
+  title: ZKTeco C3 Access-Control Middleware API
+  version: "1.0.0"
+  description: |
+    REST + Server-Sent-Events API fronting a ZKTeco C3-series access-control
+    panel. The panel makes access decisions locally; this middleware manages the
+    card roster, opens doors, and streams realtime access events.
+
+    ## Authentication
+    All endpoints except `GET /healthz` require a bearer token when `API_KEY`
+    is configured:  `Authorization: Bearer <API_KEY>`.
+
+    ## Errors
+    Every error returns a JSON envelope: `{ "error": "<message>" }` with an
+    appropriate HTTP status. `502 Bad Gateway` indicates the middleware reached
+    the panel but the panel operation failed or is unavailable.
+  license:
+    name: Proprietary
+servers:
+  - url: http://localhost:8080
+    description: Local / dev
+  - url: https://access.example.com
+    description: Production (behind TLS-terminating reverse proxy)
+
+tags:
+  - name: Health
+  - name: Device
+  - name: Cards
+  - name: Doors
+  - name: Events
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+              example: { status: ok }
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe (reflects panel link state)
+      responses:
+        "200":
+          description: Panel connected and ready
+          content:
+            application/json:
+              example: { status: ready }
+        "503":
+          description: Panel disconnected
+          content:
+            application/json:
+              example: { status: panel_disconnected }
+
+  /device:
+    get:
+      tags: [Device]
+      summary: Panel identity and firmware
+      responses:
+        "200":
+          description: Device info
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceInfo" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /params:
+    get:
+      tags: [Device]
+      summary: Read device parameters
+      parameters:
+        - name: keys
+          in: query
+          description: Comma-separated parameter names. Omit for all known keys.
+          schema: { type: string }
+          example: "IPAddress,SerialNumber,Door1SensorType"
+      responses:
+        "200":
+          description: Parameter key/value map
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { type: string }
+              example: { SerialNumber: "ACP...", IPAddress: "192.168.0.102" }
+        "502": { $ref: "#/components/responses/PanelError" }
+    put:
+      tags: [Device]
+      summary: Set device parameters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: { type: string }
+            example: { Door1Drivertime: "5", Door1SensorType: "1" }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /time/sync:
+    post:
+      tags: [Device]
+      summary: Sync panel clock to server time
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /cards:
+    get:
+      tags: [Cards]
+      summary: List enrolled cards
+      responses:
+        "200":
+          description: Cards
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Card" }
+        "502": { $ref: "#/components/responses/PanelError" }
+    post:
+      tags: [Cards]
+      summary: Enroll or update a card
+      description: Idempotent by `card_no`; re-posting updates the record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Card" }
+            example:
+              pin: "1001"
+              card_no: "16777322"
+              doors: [1, 2]
+              timezone: 0
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /cards/{cardNo}:
+    delete:
+      tags: [Cards]
+      summary: Revoke a card
+      parameters:
+        - name: cardNo
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /doors/{n}/open:
+    post:
+      tags: [Doors]
+      summary: Pulse a lock relay to open a door
+      parameters:
+        - name: n
+          in: path
+          required: true
+          description: Door / relay number (1..4)
+          schema: { type: integer, minimum: 1, maximum: 4 }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                seconds:
+                  type: integer
+                  minimum: 1
+                  maximum: 255
+                  description: Pulse duration; defaults to DOOR_DEFAULT_SECONDS.
+            example: { seconds: 5 }
+      responses:
+        "200":
+          description: Door pulsed
+          content:
+            application/json:
+              example: { status: ok, door: 1, seconds: 5 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /aux/{n}:
+    post:
+      tags: [Doors]
+      summary: Drive an auxiliary output
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                on: { type: boolean }
+                seconds: { type: integer, minimum: 0, maximum: 255 }
+            example: { on: true, seconds: 5 }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /alarm/cancel:
+    post:
+      tags: [Doors]
+      summary: Cancel an active alarm state
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /events:
+    get:
+      tags: [Events]
+      summary: Realtime access-event stream (Server-Sent Events)
+      description: |
+        Opens a `text/event-stream`. Each access event is delivered as:
+        ```
+        event: access
+        data: {"time":"...","card_no":"...","door":1,"event_name":"..."}
+        ```
+        A `: ping` comment is sent every 15s as a keep-alive.
+      responses:
+        "200":
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  responses:
+    OK:
+      description: Success
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Status" }
+          example: { status: ok }
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "invalid json: ..." }
+    PanelError:
+      description: Panel operation failed or unavailable
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "c3: ..." }
+
+  schemas:
+    Status:
+      type: object
+      properties:
+        status: { type: string }
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    DeviceInfo:
+      type: object
+      properties:
+        serial_number: { type: string }
+        device_name: { type: string }
+        firmware: { type: string }
+        mac: { type: string }
+        ip_address: { type: string }
+        doors: { type: integer, description: Number of doors/relays }
+    Card:
+      type: object
+      required: [card_no]
+      properties:
+        pin: { type: string, description: User id / PIN on the panel }
+        card_no: { type: string, description: Normalized decimal Wiegand card number }
+        doors:
+          type: array
+          items: { type: integer }
+          description: Door numbers this card may open
+        timezone: { type: integer, description: Access timezone id (0 = 24h) }
+        start: { type: string, format: date-time, description: Validity start (zero = always) }
+        end: { type: string, format: date-time, description: Validity end (zero = never) }
+        disabled: { type: boolean }
+    Event:
+      type: object
+      properties:
+        time: { type: string, format: date-time }
+        card_no: { type: string }
+        pin: { type: string }
+        door: { type: integer }
+        reader: { type: integer }
+        event_type: { type: integer }
+        event_name: { type: string }
+        verify: { type: integer }
+        in_out: { type: string, enum: [in, out, ""] }
+        raw: { type: string, description: Hex of the raw RTLog record }

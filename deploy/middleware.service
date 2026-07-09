@@ -1,0 +1,27 @@
+[Unit]
+Description=ZKTeco C3 access-control middleware
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Create a dedicated user:  sudo useradd -r -s /usr/sbin/nologin zc3
+User=zc3
+Group=zc3
+WorkingDirectory=/opt/zc3-middleware
+EnvironmentFile=/opt/zc3-middleware/.env
+ExecStart=/opt/zc3-middleware/middleware
+Restart=always
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/zc3-middleware
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
