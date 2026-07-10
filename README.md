@@ -24,6 +24,71 @@ your app, and it keeps the raw protocol off the public network.
 [C3 panel :4370] ──raw C3, LAN only──> [zc3-middleware] ──HTTPS REST+SSE, API-key──> [your app / VPS]
 ```
 
+## How it works
+
+```
+                         ┌────────────────────────── zc3-middleware ──────────────────────────┐
+                         │                                                                     │
+  ┌──────────┐  TCP 4370 │  ┌───────────┐   ┌────────────┐   ┌──────────┐   ┌───────────────┐  │  HTTP
+  │ C3 panel │◀─────────▶│  │ supervisor│──▶│ c3 protocol│──▶│  engine  │   │  REST + SSE   │◀─┼───────▶ web console /ui
+  │  (doors, │  binary   │  │ (1 conn,  │   │ (frame/CRC │   │ (roles,  │   │  HTTP server  │  │         apps, curl
+  │  readers)│  PULL     │  │  reconnect)│  │  cards,    │   │ decides, │   │  + /metrics   │  │
+  └──────────┘           │  └───────────┘   │  events)   │   │  opens)  │   └───────────────┘  │
+                         │        │         └────────────┘   └──────────┘          ▲           │
+                         │        │  events        │              │  audit         │           │
+                         │        └────────────────┴──────────────┴────────────────┘           │
+                         │                     (fan-out: SSE • JSONL audit log • engine)        │
+                         └─────────────────────────────────────────────────────────────────────┘
+```
+
+**1 — One owned connection.** The panel is single-session for control, so a
+**supervisor** goroutine holds exactly one TCP connection to port 4370 and
+reconnects with exponential backoff + jitter if it drops. Every command is
+serialized over that connection.
+
+**2 — The protocol layer** (`internal/c3`) speaks the reverse-engineered C3
+"PULL" wire format: frames are `AA 01 <cmd> <len> <data> <crc16> 55` with a
+CRC-16/ARC checksum; the panel here uses session-less mode. This layer turns
+raw frames into typed operations — device info, parameters, clock, door/relay
+control, data-table read/write (users, cards, timezones, holidays), and the
+realtime event log. Card enroll/revoke use the binary `SETDATA`/`DELETE` table
+format, validated against live hardware.
+
+**3 — Events flow one way out.** The middleware polls the panel's key-value
+realtime log (`0x79`), de-duplicates by the panel's monotonic record index, and
+normalizes each swipe into an `Event` (card, reader, direction, time, type).
+Each event fans out to three sinks at once:
+- **SSE subscribers** (`GET /events`) — live stream to the console and any app;
+- the **audit log** — an append-only JSONL file queryable at `/events/history`;
+- the **enforcement engine**.
+
+**4 — Roles decide access.** A card's **role** is stored on the panel in the
+user's `Group` field (so it survives restarts); the *rules* for each role live
+in `access.json`. When an event arrives, the engine looks up the card → group →
+role and evaluates the swipe's **direction + time + weekday** against the role's
+windows and holidays:
+- **Enforced roles** (student, teacher, …) are enrolled *without* panel
+  authorization, so the panel denies them and the middleware is the sole gate —
+  it opens the door only when a rule matches. This makes rules the panel can't
+  express natively possible (e.g. *enter 07:00–07:30, exit 13:30–14:00*).
+- **Panel-native roles** (administrator) are authorized on the panel itself, so
+  they keep working even if the middleware is down.
+- Every decision (`allow`/`deny`/`ignore` + reason) is recorded and shown live
+  at `/access/decisions`.
+
+**5 — Everything is one binary.** The HTTP layer exposes the REST + SSE API,
+Prometheus `/metrics`, health/readiness probes, and the **admin web console**,
+which is embedded into the executable (`go:embed`) and served same-origin at
+`/ui`. No database, no runtime, no external assets — a single static file you
+run with a `PANEL_ADDR`.
+
+**Failure behavior.** The panel always makes its own local decision, so a
+network blip between an app and the middleware never locks anyone out for
+panel-native roles. For enforced roles the middleware is deliberately in the
+path (that's the point — it applies rules the panel can't), so it runs on the
+LAN next to the panel and reconnects automatically; enforcement is opt-in and
+off by default.
+
 ## Quick start
 
 ```bash
