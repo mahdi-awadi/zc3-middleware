@@ -6,3 +6,4 @@
 events.jsonl
 *.jsonl
 access.json
+release/zc3-middleware-*

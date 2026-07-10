@@ -1,5 +1,8 @@
 # zc3-middleware
 
+[![CI](https://github.com/mahdi-awadi/zc3-middleware/actions/workflows/ci.yml/badge.svg)](https://github.com/mahdi-awadi/zc3-middleware/actions/workflows/ci.yml)
+[![Release](https://github.com/mahdi-awadi/zc3-middleware/actions/workflows/release.yml/badge.svg)](https://github.com/mahdi-awadi/zc3-middleware/releases)
+
 Production middleware for **ZKTeco C3-series** access-control panels. It fronts a
 C3 panel (TCP `4370`, the PULL protocol) with a clean **REST + Server-Sent-Events**
 HTTP API: read device info, open doors, drive aux outputs, sync time, and stream

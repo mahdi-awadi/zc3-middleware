@@ -1,51 +1,51 @@
-# Prebuilt executables
+# Executables
 
-Self-contained binaries — the web console and all assets are embedded, so a
-single file is all you need. No runtime, no dependencies.
+Prebuilt, self-contained binaries are published on the
+[**Releases**](https://github.com/mahdi-awadi/zc3-middleware/releases) page —
+each is a single file with the web console embedded (no runtime, no deps).
 
-| File | Run on |
+| Asset | Run on |
 |---|---|
-| `zc3-middleware-windows-amd64.exe` | Windows (bench testing / same-LAN PC) |
+| `zc3-middleware-windows-amd64.exe` | Windows (bench / same-LAN PC) |
 | `zc3-middleware-linux-amd64` | Linux server / VPS (x86-64) |
 | `zc3-middleware-linux-arm64` | Linux on ARM (e.g. Raspberry Pi) |
+| `checksums.txt` | SHA-256 of each binary |
 
-## Windows (native — no WSL)
+## Cutting a release
 
-Your Windows PC is on the same LAN as the panel, so it can talk to it directly.
-In PowerShell, from this folder:
+Binaries are built by CI (`.github/workflows/release.yml`) when you push a
+version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The workflow runs the tests, builds all three targets, and attaches them to a
+new GitHub Release with generated notes.
+
+## Build locally instead
+
+```bash
+make build          # host binary -> bin/middleware
+make build-linux    # static linux/amd64 -> dist/middleware
+make build-arm64    # static linux/arm64 -> dist/middleware-arm64
+```
+
+## Running
 
 ```powershell
-$env:PANEL_ADDR="192.168.0.102:4370"   # the panel's LAN IP
-$env:ALLOW_WRITES="true"               # enable card enrol/revoke
+# Windows (native — the PC is on the panel's LAN)
+$env:PANEL_ADDR="192.168.0.102:4370"; $env:ALLOW_WRITES="true"
 .\zc3-middleware-windows-amd64.exe
 ```
 
-Then open <http://localhost:8080/ui>.
-
-## Linux
-
 ```bash
+# Linux
 chmod +x zc3-middleware-linux-amd64
 PANEL_ADDR=192.168.0.102:4370 ALLOW_WRITES=true ./zc3-middleware-linux-amd64
 ```
 
-Open <http://localhost:8080/ui>.
-
-## Configuration
-
-Every setting is an environment variable (or a `.env` file next to the binary).
-See [`../.env.example`](../.env.example). Only `PANEL_ADDR` is required.
-
-Common ones:
-
-| Variable | Purpose |
-|---|---|
-| `PANEL_ADDR` | `host:port` of the C3 panel (required) |
-| `HTTP_ADDR` | API/UI listen address (default `:8080`) |
-| `ALLOW_WRITES` | `true` to allow card enrol/revoke and role writes |
-| `API_KEY` | bearer token; blank disables auth |
-| `ACCESS_CONFIG_PATH` | roles/policy file (default `access.json`) |
-
-> These binaries are built from commit `0a51f77`. Rebuild anytime with
-> `make build-linux` / `make build-arm64`, or the `go build` lines in the
-> project Makefile.
+Then open <http://localhost:8080/ui>. All settings are environment variables or
+a `.env` file — see [`../.env.example`](../.env.example); only `PANEL_ADDR` is
+required.

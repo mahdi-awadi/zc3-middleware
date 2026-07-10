@@ -1,0 +1,57 @@
+name: Release
+
+# Cut a release by pushing a version tag:
+#   git tag v1.0.0 && git push origin v1.0.0
+# This builds the self-contained binaries (web console embedded) for Linux
+# amd64/arm64 and Windows amd64, and attaches them to a GitHub Release.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build binaries
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          build() {
+            local goos=$1 goarch=$2 out=$3
+            echo "building ${out} (${goos}/${goarch})"
+            GOOS=$goos GOARCH=$goarch go build -ldflags "$LDFLAGS" -o "dist/${out}" ./cmd/middleware
+          }
+          build linux   amd64 zc3-middleware-linux-amd64
+          build linux   arm64 zc3-middleware-linux-arm64
+          build windows amd64 zc3-middleware-windows-amd64.exe
+          ( cd dist && sha256sum * > checksums.txt )
+          ls -lh dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/zc3-middleware-linux-amd64
+            dist/zc3-middleware-linux-arm64
+            dist/zc3-middleware-windows-amd64.exe
+            dist/checksums.txt
+          generate_release_notes: true
+          fail_on_unmatched_files: true
