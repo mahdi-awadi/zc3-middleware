@@ -207,6 +207,57 @@
       <div class="tblwrap"><table><thead><tr><th>Name</th><th>Card no</th><th>PIN</th><th>Role</th><th>Doors</th><th>Status</th><th></th></tr></thead><tbody id="cardbody"></tbody></table></div>
     </section>
 
+    <!-- ACCESS RULES -->
+    <section class="page" data-page="access">
+      <div class="head"><div><h1>Access rules</h1><p>Roles, time windows, and holidays enforced by the middleware.</p></div>
+        <button class="btn" id="reloadaccess">Reload</button>
+      </div>
+      <div class="card" id="enfcard" style="margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <label class="switch" style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);display:flex;align-items:center;gap:8px;font-weight:600">
+            <input type="checkbox" id="enf-on" style="width:auto"> Enforcement enabled
+          </label>
+          <span class="hint" style="margin:0">When on, enforced roles are gated by these rules; the panel denies enforced cards and the middleware opens the door when a rule matches.</span>
+        </div>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Roles</h3>
+          <div class="tblwrap" style="box-shadow:none;margin-bottom:12px"><table><thead><tr><th>Role</th><th>Group</th><th>Mode</th><th>Windows</th><th></th></tr></thead><tbody id="rolebody"></tbody></table></div>
+          <button class="btn" id="newrole">+ New role</button>
+        </div>
+        <div class="card">
+          <h3 id="editortitle">Role editor</h3>
+          <div class="row"><div class="field"><label>Name</label><input id="r-name" placeholder="student"></div>
+            <div class="field"><label>Group id</label><input id="r-group" inputmode="numeric" placeholder="1"></div></div>
+          <div class="field"><label>Mode</label>
+            <div class="checks"><label><input type="checkbox" id="r-enforce" checked> Enforced (middleware gates access)</label></div>
+            <div class="hint">Off = panel-native (its own timezone/doors, works if middleware is down — use for admins).</div>
+          </div>
+          <div class="field"><label>Permitted days</label><div class="checks" id="r-days"></div></div>
+          <div class="row"><div class="field"><label>Open seconds</label><input id="r-open" value="5" inputmode="numeric"></div>
+            <div class="field"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="r-holiday" checked style="width:auto"> Block on holidays</label></div></div>
+          <label>Time windows</label>
+          <div id="r-windows"></div>
+          <button class="btn sm" id="addwindow" style="margin:6px 0 12px">+ Add window</button>
+          <div class="row"><button class="btn pri" id="saverole">Save role</button><button class="btn" id="clearrole">Clear</button></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card">
+          <h3>Holidays</h3>
+          <div class="field"><label>Dates (one per line, YYYY-MM-DD)</label><textarea id="holidays" rows="5" placeholder="2026-07-14"></textarea></div>
+          <div class="field"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="swapio" style="width:auto"> Swap panel in/out interpretation</label>
+            <div class="hint">Toggle if entry/exit read reversed. Confirm by watching the Direction column below while you swipe.</div></div>
+          <button class="btn pri" id="savepolicy">Save policy</button>
+        </div>
+        <div class="card">
+          <h3>Recent decisions</h3>
+          <div class="tblwrap" style="box-shadow:none"><table><thead><tr><th>Time</th><th>Card</th><th>Role</th><th>Dir</th><th>Result</th></tr></thead><tbody id="decbody"><tr><td class="empty" colspan="5">Enforced swipes appear here.</td></tr></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
     <!-- DOORS -->
     <section class="page" data-page="doors">
       <div class="head"><div><h1>Doors &amp; outputs</h1><p>Pulse relays, drive aux outputs, cancel alarms.</p></div>
@@ -299,11 +350,12 @@ async function api(path,opts={}){
 
 /* ---- navigation ---- */
 const PAGES=[['overview','▤','Overview'],['live','◉','Live events'],['cards','▦','Cards & roles'],
-  ['doors','⊞','Doors'],['tables','☰','Data tables'],['device','⚙','Device'],['settings','⚙','Settings']];
+  ['access','⏱','Access rules'],['doors','⊞','Doors'],['tables','☰','Data tables'],['device','⚙','Device'],['settings','⚙','Settings']];
 const nav=$('#nav');
 PAGES.forEach(([id,ico,label])=>{const b=document.createElement('button');b.dataset.go=id;b.innerHTML=`<span class="ico">${ico}</span>${label}`;b.onclick=()=>go(id);nav.append(b);});
 function go(id){$$('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===id));$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.go===id));location.hash=id;
-  if(id==='overview')loadOverview(); if(id==='cards')loadCards(); if(id==='tables')loadTables(); if(id==='doors')loadDoorStatus();}
+  if(id==='overview')loadOverview(); if(id==='cards')loadCards(); if(id==='tables')loadTables(); if(id==='doors')loadDoorStatus(); if(id==='access')loadAccess();
+  if(id!=='access')stopDecisionPoll();}
 
 /* ---- overview ---- */
 async function loadOverview(){
@@ -401,12 +453,92 @@ function addEvent(ev,names){
   tb.prepend(tr);while(tb.children.length>200)tb.lastChild.remove();
 }
 
+/* ---- access rules ---- */
+const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+let ACCESS={roles:[],cfg:{}}, decTimer=null;
+function loadAccess(){
+  // build day checkboxes once
+  if(!$('#r-days').dataset.done){$('#r-days').innerHTML=DAYNAMES.map((d,i)=>`<label><input type="checkbox" value="${i}"> ${d}</label>`).join('');$('#r-days').dataset.done='1';}
+  Promise.all([api('/roles'),api('/access/config')]).then(([roles,cfg])=>{
+    ACCESS.roles=roles;ACCESS.cfg=cfg;
+    $('#enf-on').checked=!!cfg.enabled;
+    $('#holidays').value=(cfg.holidays||[]).join('\n');
+    $('#swapio').checked=!!cfg.swap_in_out;
+    renderRoles();
+    if(!$('#r-name').value)clearRole();
+  }).catch(e=>toast(e.message,'err'));
+  startDecisionPoll();
+}
+function renderRoles(){
+  const tb=$('#rolebody');
+  tb.innerHTML=ACCESS.roles.map(r=>{
+    const win=(r.windows||[]).map(w=>`${w.direction} ${w.from}-${w.to}`).join(', ')||'—';
+    return `<tr><td><span class="badge b-${['none','student','teacher','administrator'].includes(r.name)?r.name:'none'}">${esc(r.name)}</span></td>
+      <td class="mono">${r.group}</td><td>${r.enforce?'enforced':'panel'}</td><td style="font-size:12px">${esc(win)}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-edit="${r.group}">Edit</button> ${r.group!==0?`<button class="btn sm danger" data-delrole="${r.group}">✕</button>`:''}</td></tr>`;
+  }).join('');
+  $$('#rolebody [data-edit]').forEach(b=>b.onclick=()=>editRole(+b.dataset.edit));
+  $$('#rolebody [data-delrole]').forEach(b=>b.onclick=()=>delRole(+b.dataset.delrole));
+}
+function editRole(g){
+  const r=ACCESS.roles.find(x=>x.group===g);if(!r)return;
+  $('#editortitle').textContent='Edit: '+r.name;
+  $('#r-name').value=r.name;$('#r-group').value=r.group;$('#r-enforce').checked=!!r.enforce;
+  $('#r-open').value=r.open_seconds||5;$('#r-holiday').checked=!!r.block_holidays;
+  const days=r.days||[];$$('#r-days input').forEach(c=>c.checked=days.includes(+c.value));
+  $('#r-windows').innerHTML='';(r.windows||[]).forEach(w=>addWindowRow(w));
+  if(!(r.windows||[]).length)addWindowRow();
+}
+function clearRole(){
+  $('#editortitle').textContent='New role';
+  $('#r-name').value='';$('#r-group').value='';$('#r-enforce').checked=true;$('#r-open').value=5;$('#r-holiday').checked=true;
+  $$('#r-days input').forEach(c=>c.checked=[0,1,2,3,4].includes(+c.value));
+  $('#r-windows').innerHTML='';addWindowRow({direction:'in',from:'07:00',to:'07:30'});
+}
+function addWindowRow(w){
+  w=w||{direction:'any',from:'08:00',to:'17:00'};
+  const div=document.createElement('div');div.className='row';div.style.marginBottom='6px';
+  div.innerHTML=`<select class="w-dir" style="flex:1"><option value="in">in</option><option value="out">out</option><option value="any">any</option></select>
+    <input class="w-from" value="${esc(w.from)}" placeholder="07:00" style="flex:1"><input class="w-to" value="${esc(w.to)}" placeholder="07:30" style="flex:1">
+    <button class="btn sm danger" style="flex:none">✕</button>`;
+  div.querySelector('.w-dir').value=w.direction;
+  div.querySelector('button').onclick=()=>div.remove();
+  $('#r-windows').append(div);
+}
+function collectRole(){
+  const windows=$$('#r-windows .row').map(r=>({direction:r.querySelector('.w-dir').value,from:r.querySelector('.w-from').value.trim(),to:r.querySelector('.w-to').value.trim()})).filter(w=>w.from&&w.to);
+  return {name:$('#r-name').value.trim(),group:+$('#r-group').value,enforce:$('#r-enforce').checked,
+    open_seconds:+$('#r-open').value||5,block_holidays:$('#r-holiday').checked,
+    days:$$('#r-days input:checked').map(c=>+c.value),windows};
+}
+async function saveRole(){
+  const r=collectRole();
+  if(!r.name){toast('Role name required','err');return;}
+  try{await api('/roles',{method:'POST',body:JSON.stringify(r)});toast('Role saved: '+r.name,'ok');await refreshRoleOptions();loadAccess();}
+  catch(e){toast(e.message,'err');}
+}
+async function delRole(g){const r=ACCESS.roles.find(x=>x.group===g);if(!confirm('Delete role "'+(r?r.name:g)+'"?'))return;
+  try{await api('/roles/'+g,{method:'DELETE'});toast('Role deleted','ok');await refreshRoleOptions();loadAccess();}catch(e){toast(e.message,'err');}}
+async function savePolicy(){
+  const holidays=$('#holidays').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  try{await api('/access/config',{method:'PUT',body:JSON.stringify({enabled:$('#enf-on').checked,holidays,swap_in_out:$('#swapio').checked,reader_door:ACCESS.cfg.reader_door||{}})});toast('Policy saved','ok');loadAccess();}
+  catch(e){toast(e.message,'err');}
+}
+function startDecisionPoll(){stopDecisionPoll();pollDecisions();decTimer=setInterval(pollDecisions,3000);}
+function stopDecisionPoll(){if(decTimer){clearInterval(decTimer);decTimer=null;}}
+async function pollDecisions(){try{const d=await api('/access/decisions?limit=40');const tb=$('#decbody');
+  if(!d.length){return;}
+  tb.innerHTML=d.map(x=>{const cls=x.action==='allow'?'ev-in':x.action==='deny'?'ev-deny':'';const t=(x.time||'').replace('T',' ').slice(11,19);
+    return `<tr><td class="mono">${esc(t)}</td><td class="mono">${esc(x.card_no)}</td><td>${esc(x.role)}</td><td>${esc(x.direction||'—')}</td><td class="${cls}">${esc(x.action)} · ${esc(x.reason)}</td></tr>`;}).join('');
+}catch(e){}}
+async function refreshRoleOptions(){try{const roles=await api('/roles');const sel=$('#c-role');const cur=sel.value;
+  sel.innerHTML=roles.map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
+  if(cur)sel.value=cur;}catch(e){}}
+
 /* ---- config / boot ---- */
 function applyCfg(){
   $('#brandsub').textContent=CFG.panel_id||'access middleware';
   $('#ver').textContent='v'+(CFG.version||'?');
-  const roles=CFG.roles||['none','student','teacher','administrator'];
-  $('#c-role').innerHTML=roles.map(r=>`<option value="${r}"${r==='student'?' selected':''}>${r}</option>`).join('');
   const wb=$('#wbanner');
   if(!CFG.allow_writes){wb.classList.add('show');wb.innerHTML='⚠ Writes are locked. Enrolling or revoking cards needs <span class="mono">ALLOW_WRITES=true</span> on the middleware.';$('#writehint').textContent='Writes locked (ALLOW_WRITES=false) — enroll will fail until enabled.';}
   else{wb.classList.remove('show');$('#writehint').textContent='';}
@@ -428,12 +560,15 @@ $('#restart').onclick=async()=>{if(!confirm('Restart the panel? It will drop and
 $('#streamtoggle').onclick=toggleStream; $('#clearev').onclick=()=>$('#evbody').innerHTML='<tr><td class="empty" colspan="6">Cleared.</td></tr>';
 $('#theme').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');const sys=matchMedia('(prefers-color-scheme:dark)').matches;const dark=c?c==='dark':sys;document.documentElement.setAttribute('data-theme',dark?'light':'dark');localStorage.setItem('c3_theme',dark?'light':'dark');};
 $('#s-save').onclick=()=>{store.base=$('#s-base').value.trim();store.k=$('#s-key').value.trim();toast('Saved','ok');ping();go('overview');};
+$('#reloadaccess').onclick=loadAccess; $('#newrole').onclick=clearRole; $('#clearrole').onclick=clearRole;
+$('#addwindow').onclick=()=>addWindowRow(); $('#saverole').onclick=saveRole; $('#savepolicy').onclick=savePolicy;
+$('#enf-on').onchange=savePolicy;
 
 /* init */
 const th=localStorage.getItem('c3_theme');if(th)document.documentElement.setAttribute('data-theme',th);
 $('#s-base').value=store.base;$('#s-key').value=store.k;
 go(location.hash.slice(1)||'overview');
-ping();setInterval(ping,10000);
+ping();refreshRoleOptions();setInterval(ping,10000);
 </script>
 </body>
 </html>

@@ -72,33 +72,24 @@ func run() error {
 	defer audit.Close()
 	srv.SetAudit(audit)
 
-	// Optional middleware-driven access: swipe at a reader opens the mapped door.
-	allowed := map[string]bool{}
-	allowAny := false
-	for _, c := range cfg.AutoOpenCards {
-		if c == "*" {
-			allowAny = true
-		} else {
-			allowed[c] = true
-		}
+	// Role enforcement engine: applies each role's time/direction/holiday rules
+	// to live events and opens the door when access is permitted.
+	roleStore, err := access.Open(cfg.AccessConfigPath)
+	if err != nil {
+		return err
 	}
-	reactor := access.New(panel, access.Policy{
-		Enabled:    cfg.AutoOpenEnabled,
-		Seconds:    cfg.AutoOpenSeconds,
-		AllowAny:   allowAny,
-		Allowed:    allowed,
-		ReaderDoor: cfg.ReaderDoorMap,
-		Timeout:    cfg.IOTimeout,
-	}, log)
-	go reactor.Run(ctx)
-	if reactor.Enabled() {
-		log.Info("auto-open enabled", "cards", cfg.AutoOpenCards, "reader_door_map", cfg.ReaderDoorMap, "seconds", cfg.AutoOpenSeconds)
+	engine := access.NewEngine(roleStore, panel, panel, cfg.IOTimeout, log)
+	go engine.Run(ctx)
+	srv.SetAccess(roleStore, engine)
+	if roleStore.Config().Enabled {
+		log.Info("role enforcement enabled", "config", cfg.AccessConfigPath)
 	}
 
-	// Every panel event fans out to SSE subscribers and the access reactor.
+	// Every panel event fans out to SSE subscribers, the audit log, and the
+	// enforcement engine.
 	sink := func(ev c3.Event) {
 		srv.Fanout(ev)
-		reactor.Handle(ev)
+		engine.Handle(ev)
 	}
 	sup := supervisor.New(panel, sink, supervisor.Config{
 		ReconnectMin: cfg.ReconnectMin,

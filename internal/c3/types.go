@@ -27,6 +27,11 @@ type Card struct {
 	Start    time.Time `json:"start"`     // validity window start (zero = always)
 	End      time.Time `json:"end"`       // validity window end (zero = never expires)
 	Disabled bool      `json:"disabled"`  // true = enrolled but denied
+
+	// NoPanelAuth enrolls the user WITHOUT a panel authorization row, so the
+	// panel denies by default and the middleware enforcement engine is the sole
+	// gate (used for enforced roles). Default false = panel-native access.
+	NoPanelAuth bool `json:"no_panel_auth,omitempty"`
 }
 
 // Event is a single realtime record streamed from the panel (RTLog): a card

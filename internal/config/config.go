@@ -34,11 +34,8 @@ type Config struct {
 	EventPollInterval  time.Duration // RTLog poll cadence
 	EventReplayBacklog bool          // emit buffered panel events on connect
 
-	// Auto-open (middleware-driven access): swipe at reader -> open mapped door.
-	AutoOpenEnabled bool
-	AutoOpenSeconds int
-	AutoOpenCards   []string       // card numbers, or ["*"] for any card
-	ReaderDoorMap   map[int]int    // reader/eventaddr -> door; empty = identity
+	// Access enforcement (roles engine).
+	AccessConfigPath string // JSON file with roles + policy; empty = in-memory defaults
 
 	// Security
 	APIKey       string   // bearer token; empty disables auth
@@ -73,10 +70,7 @@ func Load() (Config, error) {
 		EventBufferSize:    getint("EVENT_BUFFER_SIZE", 64),
 		EventPollInterval:  getdur("EVENT_POLL_INTERVAL", time.Second),
 		EventReplayBacklog: getbool("EVENT_REPLAY_BACKLOG", false),
-		AutoOpenEnabled:    getbool("AUTO_OPEN_ENABLED", false),
-		AutoOpenSeconds:    getint("AUTO_OPEN_SECONDS", getint("DOOR_DEFAULT_SECONDS", 5)),
-		AutoOpenCards:      getlist("AUTO_OPEN_CARDS"),
-		ReaderDoorMap:      parsePairs(getenv("READER_DOOR_MAP", "")),
+		AccessConfigPath:   getenv("ACCESS_CONFIG_PATH", "access.json"),
 		APIKey:             getenv("API_KEY", ""),
 		CORSOrigins:        getlist("CORS_ORIGINS"),
 		TrustedProxy:       getbool("TRUSTED_PROXY", false),

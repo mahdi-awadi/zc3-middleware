@@ -99,6 +99,13 @@ func (c *Client) SetCard(ctx context.Context, card Card) error {
 	if err := c.setData(ctx, "user", userRec); err != nil {
 		return err
 	}
+	if card.NoPanelAuth {
+		// Enforced-role card: no panel authorization -> panel denies; the
+		// middleware engine opens the door when the role's rules are satisfied.
+		// Clear any stale authorization so the panel doesn't open on its own.
+		_ = c.deleteData(ctx, "userauthorize", "Pin", card.PIN)
+		return nil
+	}
 	authRec := map[string]string{
 		"Pin":                 card.PIN,
 		"AuthorizeTimezoneId": strconv.Itoa(tz),

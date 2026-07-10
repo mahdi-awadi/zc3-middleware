@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/awadi/zk-c3-middleware/internal/access"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/store"
 )
@@ -53,6 +54,9 @@ type Server struct {
 
 	ready func() bool // reports panel-link readiness; nil => always ready
 
+	roles  *access.Store
+	engine *access.Engine
+
 	// metrics
 	reqTotal   atomic.Int64
 	eventTotal atomic.Int64
@@ -64,6 +68,9 @@ type Server struct {
 
 // SetAudit attaches the audit store used by GET /events/history.
 func (s *Server) SetAudit(a *store.Store) { s.audit = a }
+
+// SetAccess attaches the roles store + enforcement engine.
+func (s *Server) SetAccess(rs *access.Store, e *access.Engine) { s.roles, s.engine = rs, e }
 
 // SetReadiness registers a probe used by GET /readyz (e.g. panel link state).
 func (s *Server) SetReadiness(fn func() bool) { s.ready = fn }
@@ -104,6 +111,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.HandleFunc("GET /events/history", s.handleHistory)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
+
+	// Roles & access enforcement.
+	mux.HandleFunc("GET /roles", s.handleRoles)
+	mux.HandleFunc("POST /roles", s.handleRoleUpsert)
+	mux.HandleFunc("DELETE /roles/{group}", s.handleRoleDelete)
+	mux.HandleFunc("GET /access/config", s.handleAccessConfig)
+	mux.HandleFunc("PUT /access/config", s.handleAccessConfigSet)
+	mux.HandleFunc("GET /access/decisions", s.handleDecisions)
 
 	// Embedded admin web UI (same-origin with the API).
 	mux.Handle("GET /ui/", http.StripPrefix("/ui/", uiHandler()))
@@ -196,7 +211,92 @@ func (s *Server) handleTimeSync(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.panel.ListUsers(r.Context())
+	if err == nil && s.roles != nil {
+		for i := range users {
+			users[i].Role = s.roles.RoleName(users[i].Group)
+		}
+	}
 	respond(w, users, err)
+}
+
+// ---- roles & enforcement ----
+
+func (s *Server) handleRoles(w http.ResponseWriter, r *http.Request) {
+	if s.roles == nil {
+		writeJSON(w, 200, []any{})
+		return
+	}
+	writeJSON(w, 200, s.roles.Roles())
+}
+
+func (s *Server) handleRoleUpsert(w http.ResponseWriter, r *http.Request) {
+	if s.roles == nil {
+		writeJSON(w, 503, map[string]string{"error": "roles unavailable"})
+		return
+	}
+	var role access.Role
+	if !decode(w, r, &role) {
+		return
+	}
+	if err := s.roles.Upsert(role); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleRoleDelete(w http.ResponseWriter, r *http.Request) {
+	if s.roles == nil {
+		writeJSON(w, 503, map[string]string{"error": "roles unavailable"})
+		return
+	}
+	g, err := strconv.Atoi(r.PathValue("group"))
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "bad group id"})
+		return
+	}
+	if err := s.roles.Delete(g); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleAccessConfig(w http.ResponseWriter, r *http.Request) {
+	if s.roles == nil {
+		writeJSON(w, 200, map[string]any{})
+		return
+	}
+	writeJSON(w, 200, s.roles.Config())
+}
+
+func (s *Server) handleAccessConfigSet(w http.ResponseWriter, r *http.Request) {
+	if s.roles == nil {
+		writeJSON(w, 503, map[string]string{"error": "roles unavailable"})
+		return
+	}
+	var body struct {
+		Enabled    bool        `json:"enabled"`
+		Holidays   []string    `json:"holidays"`
+		ReaderDoor map[int]int `json:"reader_door"`
+		SwapInOut  bool        `json:"swap_in_out"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := s.roles.SetGlobals(body.Enabled, body.Holidays, body.ReaderDoor, body.SwapInOut); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
+	if s.engine == nil {
+		writeJSON(w, 200, []any{})
+		return
+	}
+	writeJSON(w, 200, s.engine.Decisions(atoiDefault(r.URL.Query().Get("limit"), 100)))
 }
 
 func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
@@ -228,12 +328,30 @@ func (s *Server) handleSetCard(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c) {
 		return
 	}
-	err := s.panel.SetCard(r.Context(), c)
-	respond(w, map[string]string{"status": "ok"}, err)
+	// Resolve the role (incl. user-defined roles) to a panel Group, and decide
+	// whether the panel authorizes locally or the engine gates access.
+	if s.roles != nil && c.Role != "" {
+		if g, ok := s.roles.GroupForName(c.Role); ok {
+			c.Group = g
+			c.Role = "" // Group is now authoritative for c3.SetCard
+			c.NoPanelAuth = s.roles.EnforcedGroup(g)
+		}
+	}
+	if err := s.panel.SetCard(r.Context(), c); err != nil {
+		respond(w, nil, err)
+		return
+	}
+	if s.engine != nil {
+		s.engine.Refresh(r.Context())
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleDeleteCard(w http.ResponseWriter, r *http.Request) {
 	err := s.panel.DeleteCard(r.Context(), r.PathValue("cardNo"))
+	if err == nil && s.engine != nil {
+		s.engine.Refresh(r.Context())
+	}
 	respond(w, map[string]string{"status": "ok"}, err)
 }
 

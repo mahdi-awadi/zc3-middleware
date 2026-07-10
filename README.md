@@ -38,7 +38,8 @@ separate deploy. It manages every part of the API:
 
 - **Overview** — device identity, live door status, service metrics
 - **Live events** — realtime swipe stream (SSE)
-- **Cards & roles** — enrol / revoke, assign role (student / teacher / administrator)
+- **Cards & roles** — enrol / revoke, assign role (student / teacher / administrator / custom)
+- **Access rules** — create roles with time windows, holidays, and days; live decisions
 - **Doors** — pulse relays, aux outputs, cancel alarm, live status
 - **Data tables** — read any panel table
 - **Device** — read/set parameters, sync clock, restart
@@ -150,9 +151,34 @@ key-value RTLog (`0x79`), de-duplicated by the panel's record index.
 - [x] Door open, aux output, cancel alarm, live door/relay/alarm status
 - [x] Realtime event stream (SSE) + durable JSONL audit log + history query
 - [x] Data-table reads: users, cards, access levels, timezones, holidays, transactions
-- [x] Middleware-driven auto-open (turnstile) with card allowlist + reader→door map
 - [x] Prometheus `/metrics`, structured logging, graceful shutdown
 - [x] Unit + integration tests, full live API test pass (`scripts/api_test.sh`)
 - [x] **Card enroll/revoke** (SETDATA `0x07` / DELETE `0x09`, binary) — validated on
       live hardware via a dummy round-trip; gated behind `ALLOW_WRITES`
+- [x] Embedded admin web console (`/ui`) managing the whole API
+- [x] **Role enforcement engine** — user-defined roles with time-window / day /
+      holiday / direction rules applied to live events; enforced roles are
+      panel-denied and gated by the middleware, admins stay panel-native
 - [ ] Multi-panel supervisor, API-key store with scopes, OIDC for the frontend
+
+## Roles &amp; enforcement
+
+Roles are stored on the panel in each user's `Group` field; their rules live in
+`access.json` (created with school defaults, edited live from the **Access
+rules** page or the `/roles` + `/access/config` API).
+
+- An **enforced** role (student, teacher, …) is enrolled *without* panel
+  authorization, so the panel denies it and the middleware opens the door only
+  when the swipe's direction + time + day satisfy the role — enabling rules the
+  panel can't express natively (e.g. *enter 07:00–07:30, exit 13:30–14:00*).
+- A **panel-native** role (administrator) is authorized on the panel with a
+  timezone and doors, so it works locally even if the middleware is down.
+- Enforcement is off until enabled (master switch on the Access rules page).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/roles` | List roles |
+| `POST` | `/roles` | Create / update a role |
+| `DELETE` | `/roles/{group}` | Delete a role |
+| `GET` / `PUT` | `/access/config` | Enforcement switch, holidays, reader→door map |
+| `GET` | `/access/decisions` | Recent enforcement decisions |

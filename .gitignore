@@ -5,3 +5,4 @@
 .env
 events.jsonl
 *.jsonl
+access.json
