@@ -19,6 +19,7 @@ var ErrNotImplemented = errors.New("c3: not implemented yet")
 type Card struct {
 	PIN      string    `json:"pin"`       // user id / PIN stored on the panel
 	CardNo   string    `json:"card_no"`   // normalized decimal Wiegand card number
+	Name     string    `json:"name"`      // cardholder name
 	Doors    []int     `json:"doors"`     // door numbers this card may open (1..4)
 	Timezone int       `json:"timezone"`  // access timezone id (0 = default 24h)
 	Start    time.Time `json:"start"`     // validity window start (zero = always)

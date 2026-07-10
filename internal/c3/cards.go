@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"strings"
 )
 
 // ErrWritesDisabled is returned by write operations when ALLOW_WRITES is off.
@@ -43,27 +42,45 @@ func (c *Client) ListCards(ctx context.Context) ([]Card, error) {
 // SetCard enrolls or updates a credential: writes a user row and an
 // authorization row (PIN -> doors -> timezone). Gated by ALLOW_WRITES.
 //
-// NOTE: the SETDATA wire format below is implemented from the PULL-SDK
-// "field=value" convention but has NOT been validated against live hardware
-// (writing to a production access panel was deliberately not brute-forced).
-// Validate once with an explicit test before relying on it.
+// Wire format (SETDATA 0x07, binary) validated against live hardware via a
+// dummy round-trip: see scripts/c3enroll_validate.py.
 func (c *Client) SetCard(ctx context.Context, card Card) error {
 	if !c.allowWrites {
 		return ErrWritesDisabled
 	}
+	if card.CardNo == "" {
+		return fmt.Errorf("c3: card_no required")
+	}
 	if card.PIN == "" {
-		// The panel keys users by PIN; derive one from the card if absent.
-		card.PIN = card.CardNo
+		card.PIN = card.CardNo // panel keys users by PIN
 	}
 	tz := card.Timezone
 	if tz == 0 {
 		tz = 1 // default 24h timezone
 	}
-	// user row
+
+	// Preserve an existing user's UID on update; assign the next free UID on
+	// insert (the panel keys the user table by UID).
+	uid := 0
+	users, err := c.ListUsers(ctx)
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if u.PIN == card.PIN || u.CardNo == card.CardNo {
+			uid = u.UID
+			break
+		}
+	}
+	if uid == 0 {
+		uid = c.nextUID(ctx)
+	}
+
 	userRec := map[string]string{
+		"UID":            strconv.Itoa(uid),
 		"Pin":            card.PIN,
 		"CardNo":         card.CardNo,
-		"Name":           "",
+		"Name":           card.Name,
 		"Password":       "",
 		"Group":          "0",
 		"StartTime":      strconv.Itoa(unixOrZero(card.Start)),
@@ -74,7 +91,6 @@ func (c *Client) SetCard(ctx context.Context, card Card) error {
 	if err := c.setData(ctx, "user", userRec); err != nil {
 		return err
 	}
-	// authorization row
 	authRec := map[string]string{
 		"Pin":                 card.PIN,
 		"AuthorizeTimezoneId": strconv.Itoa(tz),
@@ -88,7 +104,6 @@ func (c *Client) DeleteCard(ctx context.Context, cardNo string) error {
 	if !c.allowWrites {
 		return ErrWritesDisabled
 	}
-	// resolve the PIN for this card
 	users, err := c.ListUsers(ctx)
 	if err != nil {
 		return err
@@ -103,33 +118,40 @@ func (c *Client) DeleteCard(ctx context.Context, cardNo string) error {
 	if pin == "" {
 		return fmt.Errorf("c3: no enrolled card %q", cardNo)
 	}
-	if err := c.deleteData(ctx, "userauthorize", map[string]string{"Pin": pin}); err != nil {
+	if err := c.deleteData(ctx, "userauthorize", "Pin", pin); err != nil {
 		return err
 	}
-	return c.deleteData(ctx, "user", map[string]string{"Pin": pin})
+	return c.deleteData(ctx, "user", "Pin", pin)
 }
 
-// setData writes one record to a table (SETDATA). UNVALIDATED wire format.
-func (c *Client) setData(ctx context.Context, table string, rec map[string]string) error {
-	payload := append([]byte(table), 0)
-	payload = append(payload, []byte(kvRecord(rec))...)
-	_, err := c.exchange(cmdSetData, payload)
-	return err
-}
-
-// deleteData removes records matching rec from a table (DELETEDATA). UNVALIDATED.
-func (c *Client) deleteData(ctx context.Context, table string, rec map[string]string) error {
-	payload := append([]byte(table), 0)
-	payload = append(payload, []byte(kvRecord(rec))...)
-	_, err := c.exchange(cmdDelData, payload)
-	return err
-}
-
-// kvRecord renders a record as tab-separated field=value pairs.
-func kvRecord(rec map[string]string) string {
-	parts := make([]string, 0, len(rec))
-	for k, v := range rec {
-		parts = append(parts, k+"="+v)
+// setData writes one record to a table (SETDATA 0x07, binary format).
+func (c *Client) setData(ctx context.Context, table string, values map[string]string) error {
+	sch, err := c.schema(ctx)
+	if err != nil {
+		return err
 	}
-	return strings.Join(parts, "\t")
+	tc, ok := sch[table]
+	if !ok {
+		return fmt.Errorf("c3: unknown table %q", table)
+	}
+	_, err = c.exchange(cmdSetData, encodeRecord(tc, values))
+	return err
+}
+
+// deleteData removes records matching keyField=keyValue (DELETE 0x09, binary).
+func (c *Client) deleteData(ctx context.Context, table, keyField, keyValue string) error {
+	sch, err := c.schema(ctx)
+	if err != nil {
+		return err
+	}
+	tc, ok := sch[table]
+	if !ok {
+		return fmt.Errorf("c3: unknown table %q", table)
+	}
+	payload, err := encodeDeleteKey(tc, keyField, keyValue)
+	if err != nil {
+		return err
+	}
+	_, err = c.exchange(cmdDelData, payload)
+	return err
 }

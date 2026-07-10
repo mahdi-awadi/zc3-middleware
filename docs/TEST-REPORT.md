@@ -42,10 +42,16 @@ Run against the real panel via the middleware. **16 / 16 passed.**
 | **Door open (both relays)** | `ControlDevice OUTPUT` → `0xC8`; **operator confirmed audible relay click on door 1 and door 2** |
 | Swipe → auto-open reactor | `auto-open door=2 reader=2 card=212532046` fired from the card |
 | Data-table schema + reads | `DATATABLE_CFG` full schema; `GETDATA` decoded 3 users, timezone, access levels |
+| **Card enroll (SETDATA 0x07, binary)** | dummy round-trip enrolled + read back (`scripts/c3enroll_validate.py`) |
+| **Card revoke (DELETE 0x09, binary)** | dummy deleted; 3 real users verified byte-for-byte restored |
+| **Enroll/revoke via Go API** | `POST /cards` → user "GOTEST" appeared; `DELETE /cards/99999999` → back to 3 real users |
 
-## Not yet hardware-validated (deliberately)
+## Write format (validated)
 
-- **Card enroll/revoke writes** (`SETDATA`/`DELETE`, `0x07`/`0x09`). Implemented
-  from the documented format but **not** brute-forced against the production
-  panel (it has 3 real users). Enable `ALLOW_WRITES=true` and validate once with
-  a dummy credential before relying on it.
+- **SETDATA** = command `0x07`, binary: `[tableIdx, nFields, fieldIdxs..., [size,value]...]`
+  (fields ascending by index; ints minimal little-endian; strings raw).
+- **DELETE** = command `0x09`, binary key: `[tableIdx, 1, fieldIdx, size, value]`.
+
+Validated with a dummy credential (no door authorization) and full
+before/after user-table verification. Still gated behind `ALLOW_WRITES=true`
+so writes to the panel are always an explicit opt-in.

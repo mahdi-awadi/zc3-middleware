@@ -67,8 +67,8 @@ Full contract: [`docs/openapi.yaml`](docs/openapi.yaml).
 | `POST` | `/restart` | Reboot the panel |
 | `GET` | `/users` | List enrolled users + access rules |
 | `GET` | `/cards` | List enrolled cards |
-| `POST` | `/cards` | Enroll/update card *(gated by `ALLOW_WRITES`)* |
-| `DELETE` | `/cards/{cardNo}` | Revoke card *(gated)* |
+| `POST` | `/cards` | Enroll/update card (validated; gated by `ALLOW_WRITES`) |
+| `DELETE` | `/cards/{cardNo}` | Revoke card (validated; gated) |
 | `GET` | `/tables` | List panel data tables |
 | `GET` | `/tables/{name}` | Read any table (user, timezone, holiday, transaction, …) |
 | `POST` | `/doors/{n}/open` | Pulse a lock relay |
@@ -134,6 +134,6 @@ key-value RTLog (`0x79`), de-duplicated by the panel's record index.
 - [x] Middleware-driven auto-open (turnstile) with card allowlist + reader→door map
 - [x] Prometheus `/metrics`, structured logging, graceful shutdown
 - [x] Unit + integration tests, full live API test pass (`scripts/api_test.sh`)
-- [ ] **Card enroll/revoke write path** — implemented behind `ALLOW_WRITES`, needs one
-      live hardware validation (not brute-forced against the production panel)
+- [x] **Card enroll/revoke** (SETDATA `0x07` / DELETE `0x09`, binary) — validated on
+      live hardware via a dummy round-trip; gated behind `ALLOW_WRITES`
 - [ ] Multi-panel supervisor, API-key store with scopes, OIDC for the frontend

@@ -99,6 +99,53 @@ func TestEncodeC3Time(t *testing.T) {
 	}
 }
 
+func TestEncodeField(t *testing.T) {
+	// int 0 -> [size=1, 0x00]
+	if got := encodeField('i', "0"); !bytesEq(got, []byte{1, 0}) {
+		t.Fatalf("encodeField i 0 = %v", got)
+	}
+	// int 99999999 = 0x05F5E0FF -> LE [size=4, FF E0 F5 05]
+	if got := encodeField('i', "99999999"); !bytesEq(got, []byte{4, 0xFF, 0xE0, 0xF5, 0x05}) {
+		t.Fatalf("encodeField i 99999999 = %v", got)
+	}
+	// string "88888" -> [size=5, '8'...]
+	if got := encodeField('s', "88888"); !bytesEq(got, append([]byte{5}, []byte("88888")...)) {
+		t.Fatalf("encodeField s = %v", got)
+	}
+}
+
+func TestEncodeRecordAndDeleteKey(t *testing.T) {
+	tc := tableCfg{Name: "user", Index: 1, Fields: []tableField{
+		{Name: "CardNo", Type: 'i', Index: 2},
+		{Name: "Pin", Type: 's', Index: 3},
+	}}
+	rec := encodeRecord(tc, map[string]string{"CardNo": "1000", "Pin": "42"})
+	// [tidx=1, nfields=2, idx2, idx3, size2,0xE8,0x03, size2,'4','2']
+	want := []byte{1, 2, 2, 3, 2, 0xE8, 0x03, 2, '4', '2'}
+	if !bytesEq(rec, want) {
+		t.Fatalf("encodeRecord = %v want %v", rec, want)
+	}
+	del, err := encodeDeleteKey(tc, "Pin", "42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytesEq(del, []byte{1, 1, 3, 2, '4', '2'}) {
+		t.Fatalf("encodeDeleteKey = %v", del)
+	}
+}
+
+func bytesEq(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func eqInts(a, b []int) bool {
 	if len(a) != len(b) {
 		return false

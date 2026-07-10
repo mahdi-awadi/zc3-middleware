@@ -251,3 +251,77 @@ func boolBit(b bool) string {
 	}
 	return "0"
 }
+
+// encodeRecord builds a binary SETDATA record for a table, validated against
+// live hardware: [tableIdx, nFields, fieldIdxs..., [size,value]...] with fields
+// in ascending index order. Missing values default to 0/"".
+func encodeRecord(tc tableCfg, values map[string]string) []byte {
+	fields := make([]tableField, len(tc.Fields))
+	copy(fields, tc.Fields)
+	sort.Slice(fields, func(i, j int) bool { return fields[i].Index < fields[j].Index })
+
+	out := []byte{byte(tc.Index), byte(len(fields))}
+	for _, f := range fields {
+		out = append(out, byte(f.Index))
+	}
+	for _, f := range fields {
+		out = append(out, encodeField(f.Type, values[f.Name])...)
+	}
+	return out
+}
+
+// encodeDeleteKey builds a binary DELETE payload keyed by one field.
+func encodeDeleteKey(tc tableCfg, keyField, keyValue string) ([]byte, error) {
+	var kf tableField
+	found := false
+	for _, f := range tc.Fields {
+		if f.Name == keyField {
+			kf, found = f, true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("c3: table %q has no field %q", tc.Name, keyField)
+	}
+	out := []byte{byte(tc.Index), 1, byte(kf.Index)}
+	out = append(out, encodeField(kf.Type, keyValue)...)
+	return out, nil
+}
+
+// encodeField encodes one [size, value] field. Ints are minimal little-endian.
+func encodeField(typ byte, val string) []byte {
+	if typ == 'i' || typ == 'L' {
+		n, _ := strconv.ParseUint(strings.TrimSpace(val), 10, 64)
+		vb := encodeUintLE(n)
+		return append([]byte{byte(len(vb))}, vb...)
+	}
+	vb := []byte(val)
+	return append([]byte{byte(len(vb))}, vb...)
+}
+
+func encodeUintLE(v uint64) []byte {
+	if v == 0 {
+		return []byte{0}
+	}
+	var b []byte
+	for v > 0 {
+		b = append(b, byte(v))
+		v >>= 8
+	}
+	return b
+}
+
+// nextUID returns max(UID)+1 from the user table (for new enrollments).
+func (c *Client) nextUID(ctx context.Context) int {
+	rows, err := c.getTable(ctx, "user")
+	if err != nil {
+		return 1
+	}
+	max := 0
+	for _, r := range rows {
+		if u := atoi(r["UID"]); u > max {
+			max = u
+		}
+	}
+	return max + 1
+}

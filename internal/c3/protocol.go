@@ -18,9 +18,9 @@ const (
 	cmdGetParam   = 0x04 // read device parameters (k=v)
 	cmdControl    = 0x05 // control device (open door, aux, cancel alarm)
 	cmdDataCfg    = 0x06 // data-table config (field layout)
-	cmdSetData    = 0x07 // write a data table (UNVALIDATED against hardware)
+	cmdSetData    = 0x07 // write a data table (binary, validated via dummy round-trip)
 	cmdGetData    = 0x08 // read a data table
-	cmdDelData    = 0x09 // delete from a data table (UNVALIDATED against hardware)
+	cmdDelData    = 0x09 // delete from a data table (binary key, validated)
 	cmdRTLogBin   = 0x0B // realtime log (binary records)
 	cmdRTLogKV    = 0x79 // realtime log (ascii key=value) -- preferred
 	replyData     = 0x0D // paged data chunk (large table reads); more follows
