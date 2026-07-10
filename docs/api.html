@@ -1,0 +1,490 @@
+<title>ZKTeco C3 Middleware — API Reference</title>
+<style>
+  :root {
+    --bg: #f5f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --border: #d9dee5;
+    --border-strong: #c3cad3;
+    --text: #1a212b;
+    --text-dim: #58616f;
+    --text-faint: #858e9c;
+    --accent: #b96b13;
+    --accent-ink: #8a4f0c;
+    --accent-soft: rgba(185,107,19,.10);
+    --m-get: #1c8a6f;
+    --m-post: #285fb4;
+    --m-put: #a9711a;
+    --m-delete: #bb392c;
+    --code-bg: #f2f0ec;
+    --code-text: #33302b;
+    --shadow: 0 1px 2px rgba(20,30,45,.05), 0 8px 24px -18px rgba(20,30,45,.35);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f131a;
+      --surface: #161b23;
+      --surface-2: #1d232d;
+      --border: #29313d;
+      --border-strong: #3a4453;
+      --text: #e7eaf0;
+      --text-dim: #9aa4b3;
+      --text-faint: #6b7686;
+      --accent: #f0a445;
+      --accent-ink: #f6bd73;
+      --accent-soft: rgba(240,164,69,.13);
+      --m-get: #35bd97;
+      --m-post: #5f9bf1;
+      --m-put: #e2ac4d;
+      --m-delete: #e76c5d;
+      --code-bg: #12161d;
+      --code-text: #cdd3dc;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 30px -20px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f7f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #d9dee5;
+    --border-strong: #c3cad3; --text: #1a212b; --text-dim: #58616f; --text-faint: #858e9c;
+    --accent: #b96b13; --accent-ink: #8a4f0c; --accent-soft: rgba(185,107,19,.10);
+    --m-get: #1c8a6f; --m-post: #285fb4; --m-put: #a9711a; --m-delete: #bb392c;
+    --code-bg: #f2f0ec; --code-text: #33302b;
+    --shadow: 0 1px 2px rgba(20,30,45,.05), 0 8px 24px -18px rgba(20,30,45,.35);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f131a; --surface: #161b23; --surface-2: #1d232d; --border: #29313d;
+    --border-strong: #3a4453; --text: #e7eaf0; --text-dim: #9aa4b3; --text-faint: #6b7686;
+    --accent: #f0a445; --accent-ink: #f6bd73; --accent-soft: rgba(240,164,69,.13);
+    --m-get: #35bd97; --m-post: #5f9bf1; --m-put: #e2ac4d; --m-delete: #e76c5d;
+    --code-bg: #12161d; --code-text: #cdd3dc;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 30px -20px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .layout { display: grid; grid-template-columns: 264px minmax(0,1fr); gap: 0; max-width: 1200px; margin: 0 auto; }
+
+  /* Sidebar */
+  aside {
+    position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    border-right: 1px solid var(--border); padding: 26px 20px 40px;
+    background: var(--bg);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent); font-size: 16px; flex: none;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .brand b { font-size: 14px; letter-spacing: -.01em; }
+  .brand small { display: block; color: var(--text-faint); font-size: 11.5px; font-weight: 500; }
+  .navgroup { margin-top: 22px; }
+  .navgroup h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--text-faint); margin: 0 0 8px 4px; font-weight: 700;
+  }
+  .navgroup a {
+    display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px;
+    color: var(--text-dim); text-decoration: none; font-size: 13px; margin-bottom: 1px;
+    transition: background .12s, color .12s;
+  }
+  .navgroup a:hover { background: var(--surface-2); color: var(--text); }
+  .navgroup a .verb { font-size: 9.5px; }
+  .navgroup a code { font-family: var(--mono); font-size: 12px; }
+
+  /* Main */
+  main { padding: 34px 40px 96px; min-width: 0; }
+  .hero { margin-bottom: 36px; }
+  .hero h1 { font-size: 30px; line-height: 1.15; letter-spacing: -.02em; margin: 0 0 8px; text-wrap: balance; font-weight: 720; }
+  .hero p { color: var(--text-dim); max-width: 62ch; margin: 0 0 18px; }
+  .pills { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .pill b { color: var(--text); font-weight: 700; }
+  .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--m-get); }
+
+  .callout {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 30px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .card h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); font-weight: 700; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--text-dim); }
+  .card code, .inline { font-family: var(--mono); font-size: 12.5px; background: var(--code-bg); color: var(--code-text); padding: 1px 6px; border-radius: 5px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 4px 0 30px; align-items: center; }
+  .legend .verb { cursor: default; }
+  .legend span.lbl { color: var(--text-faint); font-size: 12px; }
+
+  section.group { margin-bottom: 14px; scroll-margin-top: 16px; }
+  .group-head { display: flex; align-items: baseline; gap: 12px; margin: 40px 0 6px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .group-head h2 { font-size: 20px; margin: 0; letter-spacing: -.01em; font-weight: 680; }
+  .group-head p { margin: 0; color: var(--text-faint); font-size: 13px; }
+
+  .endpoint { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); margin-top: 16px; overflow: hidden; box-shadow: var(--shadow); scroll-margin-top: 16px; }
+  .ep-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; flex-wrap: wrap; }
+  .ep-head .path { font-family: var(--mono); font-size: 14.5px; color: var(--text); font-weight: 600; word-break: break-all; }
+  .ep-head .path .pvar { color: var(--accent-ink); }
+  .ep-summary { color: var(--text-dim); font-size: 13px; margin-left: auto; text-align: right; }
+  .ep-body { padding: 4px 18px 20px; border-top: 1px dashed var(--border); }
+  .ep-desc { color: var(--text-dim); font-size: 13.5px; margin: 14px 0 6px; }
+  .noauth { color: var(--m-get); font-weight: 600; }
+
+  .verb {
+    font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: .04em;
+    padding: 3px 8px; border-radius: 6px; color: #fff; flex: none; text-transform: uppercase;
+    display: inline-flex; align-items: center; line-height: 1;
+  }
+  .verb.get { background: var(--m-get); }
+  .verb.post { background: var(--m-post); }
+  .verb.put { background: var(--m-put); }
+  .verb.delete { background: var(--m-delete); }
+
+  h5.blk { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-faint); margin: 18px 0 8px; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table th { text-align: left; font-weight: 600; color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table tr:last-child td { border-bottom: none; }
+  table td.name { font-family: var(--mono); color: var(--text); font-size: 12.5px; white-space: nowrap; }
+  table td.type { font-family: var(--mono); color: var(--text-faint); font-size: 12px; }
+  .req { color: var(--m-delete); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+
+  .codewrap { overflow-x: auto; border-radius: 9px; border: 1px solid var(--border); background: var(--code-bg); margin-top: 8px; }
+  pre { margin: 0; padding: 13px 15px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: var(--code-text); }
+  pre .c { color: var(--text-faint); }
+  pre .k { color: var(--m-post); }
+  pre .s { color: var(--m-get); }
+  pre .n { color: var(--accent-ink); }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .status-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .scode { font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); }
+  .scode.ok { color: var(--m-get); }
+  .scode.warn { color: var(--m-put); }
+  .scode.err { color: var(--m-delete); }
+
+  footer { color: var(--text-faint); font-size: 12.5px; margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); }
+  footer a { color: var(--accent-ink); }
+
+  #themebtn {
+    position: fixed; top: 16px; right: 18px; z-index: 20;
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-dim);
+    width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 15px;
+    display: grid; place-items: center; box-shadow: var(--shadow);
+  }
+  #themebtn:hover { color: var(--text); border-color: var(--border-strong); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 5px; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 26px 20px 70px; }
+    .callout, .two { grid-template-columns: 1fr; }
+    .ep-summary { margin-left: 0; text-align: left; width: 100%; }
+  }
+</style>
+
+<button id="themebtn" aria-label="Toggle theme" title="Toggle light/dark">◐</button>
+<div class="layout">
+  <aside>
+    <div class="brand">
+      <div class="mark">🔐</div>
+      <div><b>C3 Middleware</b><small>REST + SSE API · v1.0</small></div>
+    </div>
+    <nav id="nav"></nav>
+  </aside>
+  <main>
+    <div class="hero">
+      <h1>ZKTeco C3 Access-Control Middleware</h1>
+      <p>A REST + Server-Sent-Events API in front of a ZKTeco C3 access panel. Manage cards and access rules, open doors, read live status, and stream access events. The panel makes access decisions locally — the middleware never sits in the unlock path.</p>
+      <div class="pills">
+        <span class="pill"><span class="dot"></span> Validated on <b>C3-200</b> · fw 5.4.3.2001</span>
+        <span class="pill">Base URL <b>http://localhost:8080</b></span>
+        <span class="pill">Auth <b>Bearer API_KEY</b></span>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="card">
+        <h3>Authentication</h3>
+        <p>When <span class="inline">API_KEY</span> is set, every endpoint except <span class="inline">/healthz</span> and <span class="inline">/metrics</span> requires <span class="inline">Authorization: Bearer &lt;API_KEY&gt;</span>. If unset, auth is disabled (dev only).</p>
+      </div>
+      <div class="card">
+        <h3>Errors</h3>
+        <p>Errors return <span class="inline">{"error":"…"}</span>. <span class="inline">400</span> = bad request, <span class="inline">401</span> = unauthorized, <span class="inline">502</span> = the panel was reached but the operation failed or writes are disabled.</p>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="lbl">Methods:</span>
+      <span class="verb get">GET</span>
+      <span class="verb post">POST</span>
+      <span class="verb put">PUT</span>
+      <span class="verb delete">DELETE</span>
+      <span class="lbl">· Writes (POST/DELETE&nbsp;/cards) require <span class="inline">ALLOW_WRITES=true</span></span>
+    </div>
+
+    <div id="content"></div>
+
+    <div id="schemas"></div>
+
+    <footer>
+      Generated from <code>docs/openapi.yaml</code> · <a href="https://github.com/mahdi-awadi/zc3-middleware">github.com/mahdi-awadi/zc3-middleware</a>
+      · Import the spec into <a href="https://editor.swagger.io">editor.swagger.io</a> for an interactive try-it console.
+    </footer>
+  </main>
+</div>
+
+<script>
+const BASE = "http://localhost:8080";
+const groups = [
+  { tag: "Health", blurb: "Liveness, readiness, and metrics — no auth required." },
+  { tag: "Device", blurb: "Panel identity, parameters, clock, reboot, and raw data tables." },
+  { tag: "Cards",  blurb: "Enrolled users and credentials. Writes gated by ALLOW_WRITES." },
+  { tag: "Doors",  blurb: "Relay control, auxiliary outputs, alarm, and live door status." },
+  { tag: "Events", blurb: "Realtime access-event stream and the durable audit log." },
+];
+
+const endpoints = [
+  { tag:"Health", method:"GET", path:"/healthz", summary:"Liveness probe", noauth:true,
+    desc:"Returns 200 while the process is alive. Used by orchestrators for liveness.",
+    responses:[["200","application/json",`{ "status": "ok" }`]] },
+  { tag:"Health", method:"GET", path:"/readyz", summary:"Readiness probe",
+    desc:"Reflects the panel link. 200 when connected, 503 when the panel is unreachable.",
+    responses:[["200","",`{ "status": "ready" }`],["503","",`{ "status": "panel_disconnected" }`]] },
+  { tag:"Health", method:"GET", path:"/metrics", summary:"Prometheus metrics", noauth:true,
+    desc:"Prometheus text exposition: request totals, events ingested, SSE subscribers, panel link state.",
+    responses:[["200","text/plain",`# HELP zc3_events_total Total access events ingested.\n# TYPE zc3_events_total counter\nzc3_events_total 42\nzc3_panel_connected 1`]] },
+
+  { tag:"Device", method:"GET", path:"/device", summary:"Panel identity and firmware",
+    desc:"Serial number, model, firmware, MAC, IP, and door count.",
+    responses:[["200","DeviceInfo",`{\n  "serial_number": "ACP7032460928",\n  "device_name": "C3-200",\n  "firmware": "AC Ver 5.4.3.2001",\n  "mac": "00:17:61:FC:09:28",\n  "ip_address": "192.168.0.102",\n  "doors": 2\n}`]] },
+  { tag:"Device", method:"GET", path:"/params", summary:"Read device parameters",
+    query:[["keys","string","Comma-separated parameter names. Omit for all known keys."]],
+    desc:"Reads panel parameters as a key/value map.",
+    example:`curl "$BASE/params?keys=~SerialNumber,IPAddress,LockCount"`,
+    responses:[["200","object",`{\n  "~SerialNumber": "ACP7032460928",\n  "IPAddress": "192.168.0.102",\n  "LockCount": "2"\n}`]] },
+  { tag:"Device", method:"PUT", path:"/params", summary:"Set device parameters",
+    body:`{ "Door1Drivertime": "5", "Door1SensorType": "1" }`,
+    desc:"Writes one or more panel parameters.",
+    responses:[["200","",`{ "status": "ok" }`],["400","",`{ "error": "invalid json: …" }`]] },
+  { tag:"Device", method:"POST", path:"/time/sync", summary:"Sync panel clock to server time",
+    desc:"Sets the panel's real-time clock to the server's current time.",
+    responses:[["200","",`{ "status": "ok" }`]] },
+  { tag:"Device", method:"GET", path:"/tables", summary:"List panel data tables",
+    desc:"Names of every readable table on the panel (19 total).",
+    responses:[["200","string[]",`["user","userauthorize","timezone","holiday",\n "transaction","firstcard","outrelaysetting", …]`]] },
+  { tag:"Device", method:"GET", path:"/tables/{name}", summary:"Read any panel data table",
+    pathparams:[["name","string","Table name, e.g. user, userauthorize, timezone, holiday, transaction."]],
+    desc:"Returns all rows of a table as field/value maps.",
+    example:`curl "$BASE/tables/timezone"`,
+    responses:[["200","object[]",`[ { "TimezoneId": "1", "MonTime1": "2359", … } ]`]] },
+  { tag:"Device", method:"POST", path:"/restart", summary:"Reboot the panel",
+    desc:"Restarts the panel. The session drops and the middleware auto-reconnects.",
+    responses:[["200","",`{ "status": "restarting" }`]] },
+
+  { tag:"Cards", method:"GET", path:"/users", summary:"List enrolled users with access rules",
+    desc:"Every user row joined with its access authorizations (timezone + door mask).",
+    responses:[["200","User[]",`[\n  {\n    "uid": 4, "pin": "212532046",\n    "card_no": "212532046", "name": "Mahdi",\n    "disabled": false,\n    "auth": [ { "timezone_id": 1, "door_mask": 3, "doors": [1,2] } ]\n  }\n]`]] },
+  { tag:"Cards", method:"GET", path:"/cards", summary:"List enrolled cards",
+    desc:"Credentials that carry a card number, with the doors they may open.",
+    responses:[["200","Card[]",`[ { "pin": "212532046", "card_no": "212532046",\n    "doors": [1,2], "timezone": 1, "disabled": false } ]`]] },
+  { tag:"Cards", method:"POST", path:"/cards", summary:"Enroll or update a card",
+    desc:"Idempotent by card_no; re-posting updates the record. Requires ALLOW_WRITES=true.",
+    body:`{\n  "pin": "212532046",\n  "card_no": "212532046",\n  "name": "Mahdi",\n  "doors": [1, 2],\n  "timezone": 1\n}`,
+    example:`curl -X POST "$BASE/cards" \\\n  -H "Authorization: Bearer $API_KEY" \\\n  -d '{"card_no":"212532046","name":"Mahdi","doors":[1,2],"timezone":1}'`,
+    responses:[["200","",`{ "status": "ok" }`],["400","",`{ "error": "card_no required" }`],["502","",`{ "error": "writes disabled" }`]] },
+  { tag:"Cards", method:"DELETE", path:"/cards/{cardNo}", summary:"Revoke a card",
+    pathparams:[["cardNo","string","Card number to revoke."]],
+    desc:"Removes the user and its authorizations. Requires ALLOW_WRITES=true.",
+    responses:[["200","",`{ "status": "ok" }`],["502","",`{ "error": "no enrolled card …" }`]] },
+
+  { tag:"Doors", method:"POST", path:"/doors/{n}/open", summary:"Pulse a lock relay to open a door",
+    pathparams:[["n","integer","Door / relay number (1–4)."]],
+    body:`{ "seconds": 5 }`,
+    desc:"Energizes the door's lock relay for the given duration. Omit seconds to use DOOR_DEFAULT_SECONDS.",
+    example:`curl -X POST "$BASE/doors/1/open" \\\n  -H "Authorization: Bearer $API_KEY" -d '{"seconds":5}'`,
+    responses:[["200","",`{ "status": "ok", "door": 1, "seconds": 5 }`],["400","",`{ "error": "bad door number" }`]] },
+  { tag:"Doors", method:"POST", path:"/aux/{n}", summary:"Drive an auxiliary output",
+    pathparams:[["n","integer","Auxiliary output number."]],
+    body:`{ "on": true, "seconds": 5 }`,
+    desc:"Turns an aux output on (for a duration) or off.",
+    responses:[["200","",`{ "status": "ok" }`]] },
+  { tag:"Doors", method:"POST", path:"/alarm/cancel", summary:"Cancel an active alarm state",
+    desc:"Clears an active alarm on the panel.",
+    responses:[["200","",`{ "status": "ok" }`]] },
+  { tag:"Doors", method:"GET", path:"/status", summary:"Live door sensor / relay / alarm state",
+    desc:"A live snapshot of each door's contact sensor and lock relay, plus alarm flags.",
+    responses:[["200","PanelStatus",`{\n  "time": "2026-07-09T17:44:29+03:00",\n  "sensor": "00", "relay": "00", "alarm": "00000000",\n  "doors": [\n    { "door": 1, "sensor_on": false, "relay_on": false },\n    { "door": 2, "sensor_on": false, "relay_on": false }\n  ]\n}`]] },
+
+  { tag:"Events", method:"GET", path:"/events", summary:"Realtime access-event stream (SSE)",
+    desc:"Opens a text/event-stream. Each access event arrives as an SSE 'access' event; a ':ping' keep-alive is sent every 15s.",
+    example:`curl -N "$BASE/events" -H "Authorization: Bearer $API_KEY"`,
+    responses:[["200","text/event-stream",`event: access\ndata: {"time":"2026-07-09T16:11:20+03:00",\n  "card_no":"212532046","door":2,"reader":2,\n  "event_type":0,"event_name":"Normal Punch Open",\n  "verify":4,"in_out":"out"}`]] },
+  { tag:"Events", method:"GET", path:"/events/history", summary:"Query the audit log (newest first)",
+    query:[["card","string","Filter by card number."],["door","integer","Filter by door."],["limit","integer","Max rows (default 100, max 1000)."],["offset","integer","Rows to skip."]],
+    desc:"Reads the durable JSONL audit log with filtering and paging.",
+    example:`curl "$BASE/events/history?card=212532046&limit=20"`,
+    responses:[["200","Event[]",`[ { "time":"…","card_no":"212532046","door":2,\n    "event_name":"Normal Punch Open" } ]`]] },
+];
+
+const schemas = {
+  DeviceInfo: [["serial_number","string"],["device_name","string"],["firmware","string"],["mac","string"],["ip_address","string"],["doors","integer"]],
+  Card: [["pin","string · user id / PIN"],["card_no","string · required · decimal Wiegand"],["name","string"],["doors","integer[] · doors this card opens"],["timezone","integer · access timezone id (0 = 24h)"],["start","date-time · validity start (zero = always)"],["end","date-time · validity end (zero = never)"],["disabled","boolean"]],
+  User: [["uid","integer"],["pin","string"],["card_no","string"],["name","string"],["group","integer"],["super_authorize","boolean"],["disabled","boolean"],["auth","AuthRule[]"]],
+  AuthRule: [["timezone_id","integer"],["door_mask","integer · bitmask 1=d1,2=d2,4=d3,8=d4"],["doors","integer[]"]],
+  Event: [["time","date-time"],["card_no","string"],["pin","string"],["door","integer"],["reader","integer"],["event_type","integer"],["event_name","string"],["verify","integer"],["in_out","in | out | \"\""],["raw","string · raw RTLog record"]],
+  PanelStatus: [["time","date-time"],["sensor","string · hex"],["relay","string · hex"],["alarm","string · hex"],["doors","DoorState[]"]],
+  DoorState: [["door","integer"],["sensor_on","boolean"],["relay_on","boolean"]],
+};
+
+// ---- render helpers ----
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+const slug = s => s.replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase();
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const pathHTML = p => esc(p).replace(/\{([^}]+)\}/g, '<span class="pvar">{$1}</span>');
+
+function highlight(code) {
+  let h = esc(code);
+  // strings
+  h = h.replace(/(&quot;|&#039;|')(?:\\.|[^\\])*?\1/g, m => `<span class="s">${m}</span>`);
+  // json keys already wrapped as strings before a colon -> recolor
+  h = h.replace(/<span class="s">((?:&quot;|').*?(?:&quot;|'))<\/span>(\s*:)/g, '<span class="k">$1</span>$2');
+  // numbers
+  h = h.replace(/\b(-?\d+\.?\d*)\b/g, '<span class="n">$1</span>');
+  // comments (lines starting with #)
+  h = h.replace(/(^|\n)(#[^\n]*)/g, (m,a,b)=>`${a}<span class="c">${b}</span>`);
+  return h;
+}
+function codeblock(code) {
+  const w = el("div","codewrap");
+  const pre = el("pre"); pre.innerHTML = highlight(code); w.appendChild(pre); return w;
+}
+function paramTable(title, rows) {
+  const h5 = el("h5","blk", title);
+  const tbl = el("table");
+  tbl.innerHTML = "<thead><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead>";
+  const tb = el("tbody");
+  rows.forEach(([n,t,d]) => {
+    const tr = el("tr");
+    tr.innerHTML = `<td class="name">${esc(n)}</td><td class="type">${esc(t)}</td><td>${d?esc(d):""}</td>`;
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb);
+  return [h5, tbl];
+}
+
+const content = document.getElementById("content");
+const nav = document.getElementById("nav");
+
+groups.forEach(g => {
+  const list = endpoints.filter(e => e.tag === g.tag);
+  if (!list.length) return;
+
+  // nav group
+  const ng = el("div","navgroup");
+  ng.appendChild(el("h4", null, g.tag));
+  list.forEach(e => {
+    const a = el("a", null, `<span class="verb ${e.method.toLowerCase()}">${e.method[0]}</span><code>${esc(e.path)}</code>`);
+    a.href = "#" + slug(e.method + e.path);
+    ng.appendChild(a);
+  });
+  nav.appendChild(ng);
+
+  // section
+  const sec = el("section","group"); sec.id = "grp-" + slug(g.tag);
+  const head = el("div","group-head");
+  head.appendChild(el("h2", null, g.tag));
+  head.appendChild(el("p", null, g.blurb));
+  sec.appendChild(head);
+
+  list.forEach(e => {
+    const ep = el("div","endpoint"); ep.id = slug(e.method + e.path);
+    const eh = el("div","ep-head");
+    eh.appendChild(el("span", "verb " + e.method.toLowerCase(), e.method));
+    eh.appendChild(el("span","path", pathHTML(e.path)));
+    eh.appendChild(el("span","ep-summary", esc(e.summary) + (e.noauth ? ' · <span class="noauth">no auth</span>' : "")));
+    ep.appendChild(eh);
+
+    const body = el("div","ep-body");
+    if (e.desc) body.appendChild(el("p","ep-desc", esc(e.desc)));
+    if (e.pathparams) paramTable("Path parameters", e.pathparams).forEach(x => body.appendChild(x));
+    if (e.query) paramTable("Query parameters", e.query).forEach(x => body.appendChild(x));
+
+    if (e.body) {
+      body.appendChild(el("h5","blk","Request body"));
+      body.appendChild(codeblock(e.body));
+    }
+    if (e.example) {
+      body.appendChild(el("h5","blk","Example"));
+      body.appendChild(codeblock(e.example.replace(/\$BASE/g, BASE)));
+    }
+    if (e.responses) {
+      body.appendChild(el("h5","blk","Responses"));
+      const first = e.responses[0];
+      const codesRow = el("div","status-row");
+      e.responses.forEach(([code]) => {
+        const cls = code[0]==="2" ? "ok" : code[0]==="4"||code[0]==="5" ? "err" : "warn";
+        codesRow.appendChild(el("span","scode "+cls, code));
+      });
+      body.appendChild(codesRow);
+      // show sample of each response body that has one
+      e.responses.filter(r => r[2]).forEach(([code,type,sample]) => {
+        const lbl = el("div", null, `<h5 class="blk">${code}${type?` · ${esc(type)}`:""}</h5>`);
+        body.appendChild(lbl);
+        body.appendChild(codeblock(sample));
+      });
+    }
+    ep.appendChild(body);
+    sec.appendChild(ep);
+  });
+  content.appendChild(sec);
+});
+
+// schemas
+const sroot = document.getElementById("schemas");
+const shead = el("div","group-head");
+shead.appendChild(el("h2", null, "Schemas"));
+shead.appendChild(el("p", null, "Response object shapes."));
+sroot.appendChild(shead);
+const grid = el("div","two");
+Object.entries(schemas).forEach(([name, fields]) => {
+  const c = el("div","endpoint");
+  c.style.margin = "0";
+  const h = el("div","ep-head"); h.appendChild(el("span","path", esc(name))); c.appendChild(h);
+  const b = el("div","ep-body");
+  const tbl = el("table");
+  const tb = el("tbody");
+  fields.forEach(([n,t]) => {
+    const tr = el("tr");
+    tr.innerHTML = `<td class="name">${esc(n)}</td><td class="type">${esc(t)}</td>`;
+    tb.appendChild(tr);
+  });
+  tbl.appendChild(tb); b.appendChild(tbl); c.appendChild(b);
+  grid.appendChild(c);
+});
+sroot.appendChild(grid);
+
+// theme toggle
+const btn = document.getElementById("themebtn");
+btn.addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const sysDark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = cur ? cur === "dark" : sysDark;
+  document.documentElement.setAttribute("data-theme", isDark ? "light" : "dark");
+});
+</script>

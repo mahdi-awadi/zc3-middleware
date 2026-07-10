@@ -52,7 +52,9 @@ always wins). See [`.env.example`](.env.example) for the annotated list.
 
 ## API
 
-Full contract: [`docs/openapi.yaml`](docs/openapi.yaml).
+Full contract: [`docs/openapi.yaml`](docs/openapi.yaml). A browsable reference is
+in [`docs/api.html`](docs/api.html) (open locally, or import the spec into
+[editor.swagger.io](https://editor.swagger.io) for a try-it console).
 
 | Method | Path | Description |
 |---|---|---|
