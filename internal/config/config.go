@@ -41,13 +41,16 @@ type Config struct {
 	ReaderDoorMap   map[int]int    // reader/eventaddr -> door; empty = identity
 
 	// Security
-	APIKey        string   // bearer token; empty disables auth
-	CORSOrigins   []string // allowed origins; empty disables CORS
-	TrustedProxy  bool     // honor X-Forwarded-* for client IP/logging
+	APIKey       string   // bearer token; empty disables auth
+	CORSOrigins  []string // allowed origins; empty disables CORS
+	TrustedProxy bool     // honor X-Forwarded-* for client IP/logging
+	AllowWrites  bool     // enable data-table writes (enroll/revoke/rules)
 
-	// Observability
-	LogLevel  string // debug|info|warn|error
-	LogFormat string // json|text
+	// Observability & audit
+	LogLevel      string // debug|info|warn|error
+	LogFormat     string // json|text
+	AuditLogPath  string // JSONL audit file; empty = memory-only
+	AuditRingSize int    // in-memory history buffer size
 }
 
 // Load reads .env (if present; path from ENV_FILE, default ".env"), then the
@@ -77,8 +80,11 @@ func Load() (Config, error) {
 		APIKey:             getenv("API_KEY", ""),
 		CORSOrigins:        getlist("CORS_ORIGINS"),
 		TrustedProxy:       getbool("TRUSTED_PROXY", false),
+		AllowWrites:        getbool("ALLOW_WRITES", false),
 		LogLevel:           getenv("LOG_LEVEL", "info"),
 		LogFormat:          getenv("LOG_FORMAT", "json"),
+		AuditLogPath:       getenv("AUDIT_LOG_PATH", "events.jsonl"),
+		AuditRingSize:      getint("AUDIT_RING_SIZE", 10000),
 	}
 	return c, c.validate()
 }

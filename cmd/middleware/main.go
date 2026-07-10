@@ -17,6 +17,7 @@ import (
 	"github.com/awadi/zk-c3-middleware/internal/api"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/config"
+	"github.com/awadi/zk-c3-middleware/internal/store"
 	"github.com/awadi/zk-c3-middleware/internal/supervisor"
 )
 
@@ -49,6 +50,7 @@ func run() error {
 		c3.WithTimeout(cfg.IOTimeout),
 		c3.WithPollInterval(cfg.EventPollInterval),
 		c3.WithReplayBacklog(cfg.EventReplayBacklog),
+		c3.WithAllowWrites(cfg.AllowWrites),
 	)
 
 	srv := api.New(panel, api.Options{
@@ -58,6 +60,14 @@ func run() error {
 		DoorDefaultSecs: cfg.DoorDefaultSeconds,
 		Logger:          log,
 	})
+
+	// Durable audit log of every access event.
+	audit, err := store.Open(cfg.AuditLogPath, cfg.AuditRingSize)
+	if err != nil {
+		return err
+	}
+	defer audit.Close()
+	srv.SetAudit(audit)
 
 	// Optional middleware-driven access: swipe at a reader opens the mapped door.
 	allowed := map[string]bool{}

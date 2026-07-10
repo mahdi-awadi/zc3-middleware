@@ -41,6 +41,44 @@ type Event struct {
 	Raw       string    `json:"raw"`        // hex of the raw record, for debugging
 }
 
+// AuthRule authorizes a PIN to a set of doors during a timezone.
+type AuthRule struct {
+	TimezoneID int   `json:"timezone_id"`
+	DoorMask   int   `json:"door_mask"`
+	Doors      []int `json:"doors"`
+}
+
+// User is a full enrolled-user record from the panel's user table, joined with
+// its access authorizations.
+type User struct {
+	UID      int        `json:"uid"`
+	PIN      string     `json:"pin"`
+	CardNo   string     `json:"card_no"`
+	Name     string     `json:"name"`
+	Password string     `json:"password,omitempty"`
+	Group    int        `json:"group"`
+	Super    bool       `json:"super_authorize"`
+	Disabled bool       `json:"disabled"`
+	Auth     []AuthRule `json:"auth"`
+}
+
+// DoorState is the live state of one door.
+type DoorState struct {
+	Door     int  `json:"door"`
+	SensorOn bool `json:"sensor_on"` // door-contact sensor active
+	RelayOn  bool `json:"relay_on"`  // lock relay energized
+}
+
+// PanelStatus is a live snapshot of door sensors, relays and alarms.
+type PanelStatus struct {
+	Time   time.Time   `json:"time"`
+	Sensor string      `json:"sensor"`
+	Relay  string      `json:"relay"`
+	Alarm  string      `json:"alarm"`
+	Doors  []DoorState `json:"doors"`
+	Raw    string      `json:"raw,omitempty"`
+}
+
 // DeviceInfo is a snapshot of panel identity/parameters.
 type DeviceInfo struct {
 	SerialNumber string `json:"serial_number"`
@@ -63,13 +101,21 @@ type Panel interface {
 	SetParams(ctx context.Context, kv map[string]string) error
 	SyncTime(ctx context.Context, t time.Time) error
 
+	// Data tables (read).
+	ListUsers(ctx context.Context) ([]User, error)
 	ListCards(ctx context.Context) ([]Card, error)
+	TableNames(ctx context.Context) ([]string, error)
+	GetTable(ctx context.Context, name string) ([]map[string]string, error)
+
+	// Data tables (write) — gated by ALLOW_WRITES; return ErrWritesDisabled when off.
 	SetCard(ctx context.Context, c Card) error   // create or update
 	DeleteCard(ctx context.Context, cardNo string) error
 
 	OpenDoor(ctx context.Context, door, seconds int) error
 	SetAux(ctx context.Context, index int, on bool, seconds int) error
 	CancelAlarm(ctx context.Context) error
+	Restart(ctx context.Context) error
+	Status(ctx context.Context) (PanelStatus, error)
 
 	// Events opens the realtime stream. The channel closes when ctx is done or
 	// the connection drops; the caller is expected to reconnect.

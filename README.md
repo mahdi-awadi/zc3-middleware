@@ -58,17 +58,24 @@ Full contract: [`docs/openapi.yaml`](docs/openapi.yaml).
 |---|---|---|
 | `GET` | `/healthz` | Liveness |
 | `GET` | `/readyz` | Readiness (panel link state) |
+| `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/device` | Panel identity / firmware |
+| `GET` | `/status` | Live door sensor / relay / alarm state |
 | `GET` | `/params?keys=a,b` | Read device parameters |
 | `PUT` | `/params` | Set device parameters |
 | `POST` | `/time/sync` | Sync panel clock to server time |
-| `GET` | `/cards` | List cards *(gated — see roadmap)* |
-| `POST` | `/cards` | Enroll/update card *(gated)* |
+| `POST` | `/restart` | Reboot the panel |
+| `GET` | `/users` | List enrolled users + access rules |
+| `GET` | `/cards` | List enrolled cards |
+| `POST` | `/cards` | Enroll/update card *(gated by `ALLOW_WRITES`)* |
 | `DELETE` | `/cards/{cardNo}` | Revoke card *(gated)* |
+| `GET` | `/tables` | List panel data tables |
+| `GET` | `/tables/{name}` | Read any table (user, timezone, holiday, transaction, …) |
 | `POST` | `/doors/{n}/open` | Pulse a lock relay |
 | `POST` | `/aux/{n}` | Drive an auxiliary output |
 | `POST` | `/alarm/cancel` | Cancel alarm state |
 | `GET` | `/events` | Realtime access events (SSE) |
+| `GET` | `/events/history?card=&door=&limit=&offset=` | Query the audit log |
 
 Example — open door 1 for 5s:
 
@@ -120,10 +127,13 @@ key-value RTLog (`0x79`), de-duplicated by the panel's record index.
 
 ## Roadmap
 
-- [x] Connect, device info, params, time sync
-- [x] Door open, aux output, cancel alarm
-- [x] Realtime event stream (SSE)
-- [ ] Card enroll/revoke (write path — pending table-layout validation)
-- [ ] SQLite audit log + offline event backfill
-- [ ] Multi-panel supervisor
-- [ ] Prometheus `/metrics`, API-key store with scopes
+- [x] Connect, device info, params, time sync, restart
+- [x] Door open, aux output, cancel alarm, live door/relay/alarm status
+- [x] Realtime event stream (SSE) + durable JSONL audit log + history query
+- [x] Data-table reads: users, cards, access levels, timezones, holidays, transactions
+- [x] Middleware-driven auto-open (turnstile) with card allowlist + reader→door map
+- [x] Prometheus `/metrics`, structured logging, graceful shutdown
+- [x] Unit + integration tests, full live API test pass (`scripts/api_test.sh`)
+- [ ] **Card enroll/revoke write path** — implemented behind `ALLOW_WRITES`, needs one
+      live hardware validation (not brute-forced against the production panel)
+- [ ] Multi-panel supervisor, API-key store with scopes, OIDC for the frontend

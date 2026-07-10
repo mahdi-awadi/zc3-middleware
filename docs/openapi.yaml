@@ -227,6 +227,94 @@ paths:
         "200": { $ref: "#/components/responses/OK" }
         "502": { $ref: "#/components/responses/PanelError" }
 
+  /users:
+    get:
+      tags: [Cards]
+      summary: List enrolled users with access rules
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/User" } }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /tables:
+    get:
+      tags: [Device]
+      summary: List panel data tables
+      responses:
+        "200":
+          description: Table names
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+
+  /tables/{name}:
+    get:
+      tags: [Device]
+      summary: Read any panel data table
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          description: e.g. user, userauthorize, timezone, holiday, transaction
+      responses:
+        "200":
+          description: Rows (field/value maps)
+          content:
+            application/json:
+              schema: { type: array, items: { type: object, additionalProperties: { type: string } } }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /status:
+    get:
+      tags: [Doors]
+      summary: Live door sensor / relay / alarm state
+      responses:
+        "200":
+          description: Panel status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PanelStatus" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /restart:
+    post:
+      tags: [Device]
+      summary: Reboot the panel
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "502": { $ref: "#/components/responses/PanelError" }
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Metrics in Prometheus text exposition format
+          content:
+            text/plain: { schema: { type: string } }
+
+  /events/history:
+    get:
+      tags: [Events]
+      summary: Query the audit log (newest first)
+      parameters:
+        - { name: card, in: query, schema: { type: string } }
+        - { name: door, in: query, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, default: 100, maximum: 1000 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
+      responses:
+        "200":
+          description: Stored events
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
+
   /events:
     get:
       tags: [Events]
@@ -315,4 +403,35 @@ components:
         event_name: { type: string }
         verify: { type: integer }
         in_out: { type: string, enum: [in, out, ""] }
-        raw: { type: string, description: Hex of the raw RTLog record }
+        raw: { type: string, description: Raw RTLog record }
+    AuthRule:
+      type: object
+      properties:
+        timezone_id: { type: integer }
+        door_mask: { type: integer, description: Door bitmask (1=door1,2=door2,4=door3,8=door4) }
+        doors: { type: array, items: { type: integer } }
+    User:
+      type: object
+      properties:
+        uid: { type: integer }
+        pin: { type: string }
+        card_no: { type: string }
+        name: { type: string }
+        group: { type: integer }
+        super_authorize: { type: boolean }
+        disabled: { type: boolean }
+        auth: { type: array, items: { $ref: "#/components/schemas/AuthRule" } }
+    DoorState:
+      type: object
+      properties:
+        door: { type: integer }
+        sensor_on: { type: boolean }
+        relay_on: { type: boolean }
+    PanelStatus:
+      type: object
+      properties:
+        time: { type: string, format: date-time }
+        sensor: { type: string }
+        relay: { type: string }
+        alarm: { type: string }
+        doors: { type: array, items: { $ref: "#/components/schemas/DoorState" } }

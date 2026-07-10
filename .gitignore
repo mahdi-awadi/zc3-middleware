@@ -3,3 +3,5 @@
 *.exe
 *.log
 .env
+events.jsonl
+*.jsonl

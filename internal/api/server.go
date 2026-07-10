@@ -19,13 +19,16 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/awadi/zk-c3-middleware/internal/c3"
+	"github.com/awadi/zk-c3-middleware/internal/store"
 )
 
 // Options configures the HTTP server. All values come from config (no defaults
@@ -42,12 +45,21 @@ type Server struct {
 	panel c3.Panel
 	opt   Options
 	log   *slog.Logger
+	audit *store.Store
 
 	ready func() bool // reports panel-link readiness; nil => always ready
+
+	// metrics
+	reqTotal   atomic.Int64
+	eventTotal atomic.Int64
+	sseActive  atomic.Int64
 
 	mu   sync.Mutex
 	subs map[chan c3.Event]struct{} // SSE subscribers
 }
+
+// SetAudit attaches the audit store used by GET /events/history.
+func (s *Server) SetAudit(a *store.Store) { s.audit = a }
 
 // SetReadiness registers a probe used by GET /readyz (e.g. panel link state).
 func (s *Server) SetReadiness(fn func() bool) { s.ready = fn }
@@ -73,18 +85,29 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /params", s.handleGetParams)
 	mux.HandleFunc("PUT /params", s.handleSetParams)
 	mux.HandleFunc("POST /time/sync", s.handleTimeSync)
+	mux.HandleFunc("GET /users", s.handleListUsers)
 	mux.HandleFunc("GET /cards", s.handleListCards)
 	mux.HandleFunc("POST /cards", s.handleSetCard)
 	mux.HandleFunc("DELETE /cards/{cardNo}", s.handleDeleteCard)
+	mux.HandleFunc("GET /tables", s.handleTables)
+	mux.HandleFunc("GET /tables/{name}", s.handleTable)
+	mux.HandleFunc("POST /restart", s.handleRestart)
+	mux.HandleFunc("GET /status", s.handleStatus)
 	mux.HandleFunc("POST /doors/{n}/open", s.handleOpenDoor)
 	mux.HandleFunc("POST /aux/{n}", s.handleAux)
 	mux.HandleFunc("POST /alarm/cancel", s.handleCancelAlarm)
 	mux.HandleFunc("GET /events", s.handleEvents)
-	return s.cors(s.auth(logMW(s.log, mux)))
+	mux.HandleFunc("GET /events/history", s.handleHistory)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
+	return s.cors(s.auth(logMW(s.log, mux, &s.reqTotal)))
 }
 
 // Fanout receives events from the panel loop and pushes them to SSE subscribers.
 func (s *Server) Fanout(ev c3.Event) {
+	s.eventTotal.Add(1)
+	if s.audit != nil {
+		s.audit.Append(ev)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.subs {
@@ -133,9 +156,33 @@ func (s *Server) handleTimeSync(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]string{"status": "ok"}, err)
 }
 
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.panel.ListUsers(r.Context())
+	respond(w, users, err)
+}
+
 func (s *Server) handleListCards(w http.ResponseWriter, r *http.Request) {
 	cards, err := s.panel.ListCards(r.Context())
 	respond(w, cards, err)
+}
+
+func (s *Server) handleTables(w http.ResponseWriter, r *http.Request) {
+	names, err := s.panel.TableNames(r.Context())
+	respond(w, names, err)
+}
+
+func (s *Server) handleTable(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.panel.GetTable(r.Context(), r.PathValue("name"))
+	respond(w, rows, err)
+}
+
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	respond(w, map[string]string{"status": "restarting"}, s.panel.Restart(r.Context()))
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	st, err := s.panel.Status(r.Context())
+	respond(w, st, err)
 }
 
 func (s *Server) handleSetCard(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +235,35 @@ func (s *Server) handleCancelAlarm(w http.ResponseWriter, r *http.Request) {
 	respond(w, map[string]string{"status": "ok"}, s.panel.CancelAlarm(r.Context()))
 }
 
+// handleHistory returns stored events newest-first with filtering + paging.
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	if s.audit == nil {
+		writeJSON(w, 200, []c3.Event{})
+		return
+	}
+	q := r.URL.Query()
+	f := store.Filter{
+		CardNo: q.Get("card"),
+		Door:   atoiDefault(q.Get("door"), 0),
+		Limit:  atoiDefault(q.Get("limit"), 100),
+		Offset: atoiDefault(q.Get("offset"), 0),
+	}
+	writeJSON(w, 200, s.audit.Query(f))
+}
+
+// handleMetrics exposes Prometheus-format metrics (zero external deps).
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	ready := 0
+	if s.ready == nil || s.ready() {
+		ready = 1
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# HELP zc3_http_requests_total Total HTTP requests.\n# TYPE zc3_http_requests_total counter\nzc3_http_requests_total %d\n", s.reqTotal.Load())
+	fmt.Fprintf(w, "# HELP zc3_events_total Total access events ingested.\n# TYPE zc3_events_total counter\nzc3_events_total %d\n", s.eventTotal.Load())
+	fmt.Fprintf(w, "# HELP zc3_sse_subscribers Active SSE subscribers.\n# TYPE zc3_sse_subscribers gauge\nzc3_sse_subscribers %d\n", s.sseActive.Load())
+	fmt.Fprintf(w, "# HELP zc3_panel_connected Panel link state (1=up).\n# TYPE zc3_panel_connected gauge\nzc3_panel_connected %d\n", ready)
+}
+
 // handleEvents streams realtime panel events to the client as SSE.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
@@ -199,10 +275,12 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.subs[ch] = struct{}{}
 	s.mu.Unlock()
+	s.sseActive.Add(1)
 	defer func() {
 		s.mu.Lock()
 		delete(s.subs, ch)
 		s.mu.Unlock()
+		s.sseActive.Add(-1)
 	}()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -267,12 +345,23 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	})
 }
 
-func logMW(log *slog.Logger, next http.Handler) http.Handler {
+func logMW(log *slog.Logger, next http.Handler, counter *atomic.Int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		counter.Add(1)
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Info("http", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start).String())
 	})
+}
+
+func atoiDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
 }
 
 func respond(w http.ResponseWriter, v any, err error) {

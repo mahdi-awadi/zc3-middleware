@@ -3,6 +3,7 @@ package c3
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -21,12 +22,18 @@ type Client struct {
 	pollInterval  time.Duration
 	loc           *time.Location
 	replayBacklog bool
+	allowWrites   bool
 
 	mu   sync.Mutex
 	conn net.Conn
 }
 
 type Option func(*Client)
+
+// WithAllowWrites enables data-table write operations (card enroll/revoke,
+// timezone/holiday/access-level writes). Off by default: writes to a live
+// access panel are gated behind explicit opt-in.
+func WithAllowWrites(v bool) Option { return func(c *Client) { c.allowWrites = v } }
 
 // WithReplayBacklog controls whether buffered events already on the panel are
 // emitted on connect. Default false (prime the cursor, only stream new events);
@@ -120,6 +127,61 @@ func (c *Client) exchangeLocked(cmd byte, payload []byte) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("c3: unexpected reply cmd 0x%02x", rcmd)
 	}
+}
+
+// exchangeData runs a request that may return a paged response: zero or more
+// replyData (0x0D) chunks followed by a terminating replyOK (0xC8). Used for
+// large table reads (e.g. the transaction log).
+func (c *Client) exchangeData(cmd byte, payload []byte) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil {
+		return nil, fmt.Errorf("c3: not connected")
+	}
+	_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
+	if _, err := c.conn.Write(encodeFrame(cmd, payload)); err != nil {
+		return nil, fmt.Errorf("c3: write: %w", err)
+	}
+	var out []byte
+	gotData := false
+	for {
+		// After the first data chunk, some paged tables (e.g. an empty
+		// transaction log) send no terminating 0xC8; use a short continuation
+		// deadline and treat its timeout as end-of-stream.
+		d := c.timeout
+		if gotData {
+			d = 800 * time.Millisecond
+		}
+		_ = c.conn.SetDeadline(time.Now().Add(d))
+		rcmd, data, err := readFrame(c.conn)
+		if err != nil {
+			if gotData && isTimeout(err) {
+				return out, nil // paged stream ended without explicit terminator
+			}
+			return nil, err
+		}
+		switch rcmd {
+		case replyData:
+			out = append(out, data...)
+			gotData = true
+		case replyOK:
+			out = append(out, data...)
+			return out, nil
+		case replyError:
+			code := -1
+			if len(data) > 0 {
+				code = int(data[0])
+			}
+			return nil, fmt.Errorf("c3: panel error (code 0x%02x)", code)
+		default:
+			return nil, fmt.Errorf("c3: unexpected reply cmd 0x%02x", rcmd)
+		}
+	}
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // readFrame reads one AA..55 frame and verifies its CRC and end marker.
@@ -246,6 +308,63 @@ func (c *Client) CancelAlarm(ctx context.Context) error {
 	payload := []byte{ctlCancelAlarm, 0, 0, 0, 0}
 	_, err := c.exchange(cmdControl, payload)
 	return err
+}
+
+// Restart reboots the panel (ControlDevice RESTART_DEVICE). The session drops;
+// the supervisor reconnects automatically.
+func (c *Client) Restart(ctx context.Context) error {
+	payload := []byte{ctlRestart, 0, 0, 0, 0}
+	_, err := c.exchange(cmdControl, payload)
+	return err
+}
+
+// Status reads the current door/relay/alarm state from the panel's RTLog
+// status record (sensor/relay/alarm key-value line).
+func (c *Client) Status(ctx context.Context) (PanelStatus, error) {
+	data, err := c.exchange(cmdRTLogKV, nil)
+	if err != nil {
+		return PanelStatus{}, err
+	}
+	var st PanelStatus
+	st.Raw = string(data)
+	for _, line := range strings.Split(string(data), "\r\n") {
+		f := parseKV(strings.ReplaceAll(line, "\r", ""), "\t")
+		if _, ok := f["sensor"]; ok {
+			st.Sensor = f["sensor"]
+			st.Relay = f["relay"]
+			st.Alarm = f["alarm"]
+			if t, e := time.ParseInLocation("2006-01-02 15:04:05", f["time"], c.loc); e == nil {
+				st.Time = t
+			}
+			st.Doors = parseDoorStates(f["sensor"], f["relay"])
+			return st, nil
+		}
+	}
+	return st, nil
+}
+
+// parseDoorStates expands hex sensor/relay bytes into per-door state.
+func parseDoorStates(sensorHex, relayHex string) []DoorState {
+	sensor := hexByte(sensorHex)
+	relay := hexByte(relayHex)
+	var out []DoorState
+	for d := 0; d < 4; d++ {
+		bit := byte(1 << d)
+		if sensor == 0 && relay == 0 && d >= 2 {
+			continue // typical 2-door panel: don't invent doors 3/4
+		}
+		out = append(out, DoorState{
+			Door:     d + 1,
+			SensorOn: sensor&bit != 0,
+			RelayOn:  relay&bit != 0,
+		})
+	}
+	return out
+}
+
+func hexByte(s string) byte {
+	n, _ := strconv.ParseUint(strings.TrimSpace(s), 16, 16)
+	return byte(n)
 }
 
 // Events streams realtime access events by polling the key-value RTLog (0x79)
@@ -378,6 +497,14 @@ func inOut(s string) string {
 	default:
 		return ""
 	}
+}
+
+// unixOrZero returns the unix seconds of t, or 0 if t is the zero time.
+func unixOrZero(t time.Time) int {
+	if t.IsZero() {
+		return 0
+	}
+	return int(t.Unix())
 }
 
 // encodeC3Time encodes a time as ZKTeco packed seconds-since-2000.
