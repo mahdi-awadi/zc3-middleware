@@ -58,6 +58,9 @@ func run() error {
 		CORSOrigins:     cfg.CORSOrigins,
 		EventBufferSize: cfg.EventBufferSize,
 		DoorDefaultSecs: cfg.DoorDefaultSeconds,
+		AllowWrites:     cfg.AllowWrites,
+		PanelID:         cfg.PanelID,
+		Version:         version,
 		Logger:          log,
 	})
 

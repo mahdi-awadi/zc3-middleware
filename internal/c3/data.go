@@ -207,13 +207,15 @@ func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
 	}
 	var users []User
 	for _, r := range urows {
+		g := atoi(r["Group"])
 		users = append(users, User{
 			UID:      atoi(r["UID"]),
 			PIN:      r["Pin"],
 			CardNo:   r["CardNo"],
 			Name:     r["Name"],
+			Role:     RoleName(g),
 			Password: r["Password"],
-			Group:    atoi(r["Group"]),
+			Group:    g,
 			Super:    r["SuperAuthorize"] == "1",
 			Disabled: r["Disable"] == "1",
 			Auth:     authByPin[r["Pin"]],

@@ -20,6 +20,8 @@ type Card struct {
 	PIN      string    `json:"pin"`       // user id / PIN stored on the panel
 	CardNo   string    `json:"card_no"`   // normalized decimal Wiegand card number
 	Name     string    `json:"name"`      // cardholder name
+	Role     string    `json:"role"`      // student|teacher|administrator|none
+	Group    int       `json:"group"`     // panel Group field (role id); set from Role if given
 	Doors    []int     `json:"doors"`     // door numbers this card may open (1..4)
 	Timezone int       `json:"timezone"`  // access timezone id (0 = default 24h)
 	Start    time.Time `json:"start"`     // validity window start (zero = always)
@@ -56,6 +58,7 @@ type User struct {
 	PIN      string     `json:"pin"`
 	CardNo   string     `json:"card_no"`
 	Name     string     `json:"name"`
+	Role     string     `json:"role"` // derived from Group
 	Password string     `json:"password,omitempty"`
 	Group    int        `json:"group"`
 	Super    bool       `json:"super_authorize"`

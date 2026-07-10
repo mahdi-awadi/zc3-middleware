@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C3 Middleware — Console</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --surface:#fff; --surface-2:#eef1f5; --border:#d9dee5; --border-strong:#c4cbd4;
+    --text:#1a212b; --dim:#58616f; --faint:#889; --accent:#b96b13; --accent-ink:#8a4f0c; --accent-soft:rgba(185,107,19,.10);
+    --ok:#1c8a6f; --warn:#a9711a; --err:#bb392c; --info:#285fb4;
+    --code-bg:#f1efec; --shadow:0 1px 2px rgba(20,30,45,.05),0 8px 24px -18px rgba(20,30,45,.35);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0f131a; --surface:#161b23; --surface-2:#1d232d; --border:#29313d; --border-strong:#3a4453;
+    --text:#e7eaf0; --dim:#9aa4b3; --faint:#6b7686; --accent:#f0a445; --accent-ink:#f6bd73; --accent-soft:rgba(240,164,69,.13);
+    --ok:#35bd97; --warn:#e2ac4d; --err:#e76c5d; --info:#5f9bf1; --code-bg:#12161d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px -20px rgba(0,0,0,.7);
+  }}
+  :root[data-theme="light"]{--bg:#f4f6f8;--surface:#fff;--surface-2:#eef1f5;--border:#d9dee5;--border-strong:#c4cbd4;--text:#1a212b;--dim:#58616f;--faint:#889;--accent:#b96b13;--accent-ink:#8a4f0c;--accent-soft:rgba(185,107,19,.10);--ok:#1c8a6f;--warn:#a9711a;--err:#bb392c;--info:#285fb4;--code-bg:#f1efec;--shadow:0 1px 2px rgba(20,30,45,.05),0 8px 24px -18px rgba(20,30,45,.35);}
+  :root[data-theme="dark"]{--bg:#0f131a;--surface:#161b23;--surface-2:#1d232d;--border:#29313d;--border-strong:#3a4453;--text:#e7eaf0;--dim:#9aa4b3;--faint:#6b7686;--accent:#f0a445;--accent-ink:#f6bd73;--accent-soft:rgba(240,164,69,.13);--ok:#35bd97;--warn:#e2ac4d;--err:#e76c5d;--info:#5f9bf1;--code-bg:#12161d;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px -20px rgba(0,0,0,.7);}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  .app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+
+  /* Sidebar */
+  aside{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px}
+  .brand .mk{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:16px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
+  .brand b{font-size:14px;letter-spacing:-.01em;display:block}
+  .brand small{color:var(--faint);font-size:11px;font-weight:500}
+  nav{display:flex;flex-direction:column;padding:6px 10px;gap:1px;overflow-y:auto}
+  nav button{display:flex;align-items:center;gap:10px;padding:8px 11px;border:none;background:none;color:var(--dim);font:inherit;font-size:13.5px;text-align:left;border-radius:7px;cursor:pointer;width:100%}
+  nav button:hover{background:var(--surface-2);color:var(--text)}
+  nav button.active{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+  nav button .ico{width:16px;text-align:center;font-size:14px;flex:none}
+  .side-foot{margin-top:auto;padding:12px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--faint)}
+  .side-foot .conn{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+  .dot.up{background:var(--ok)} .dot.down{background:var(--err)}
+
+  /* Main */
+  main{padding:26px 30px 70px;min-width:0;max-width:1080px}
+  .page{display:none} .page.on{display:block;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+  h1{font-size:22px;margin:0 0 3px;letter-spacing:-.01em}
+  .head p{margin:0;color:var(--dim);font-size:13px}
+
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:720px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
+  .stat .n{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .stat .l{font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px}
+  .kv dt{color:var(--faint)} .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
+
+  /* Controls */
+  label{display:block;font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:5px}
+  input,select,textarea{width:100%;padding:8px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:13.5px}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+  textarea{font-family:var(--mono);font-size:12.5px;resize:vertical}
+  .field{margin-bottom:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .row>*{flex:1;min-width:120px}
+  button.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap}
+  button.btn:hover{border-color:var(--accent);color:var(--accent-ink)}
+  button.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.btn.pri:hover{filter:brightness(1.06);color:#fff}
+  button.btn.danger:hover{border-color:var(--err);color:var(--err)}
+  button.btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.sm{padding:5px 10px;font-size:12px}
+  .checks{display:flex;gap:14px;flex-wrap:wrap}
+  .checks label{display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);font-size:13.5px;margin:0}
+  .checks input{width:auto}
+
+  /* Table */
+  .tblwrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;background:var(--surface)}
+  td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  td.mono,.mono{font-family:var(--mono);font-size:12.5px}
+  tbody tr:hover{background:var(--surface-2)}
+  .empty{padding:26px;text-align:center;color:var(--faint);font-size:13px}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em}
+  .b-student{background:rgba(40,95,180,.14);color:var(--info)}
+  .b-teacher{background:rgba(28,138,111,.16);color:var(--ok)}
+  .b-administrator{background:var(--accent-soft);color:var(--accent-ink)}
+  .b-none{background:var(--surface-2);color:var(--faint)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--dim)}
+
+  pre{margin:0;padding:13px 15px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto;background:var(--code-bg);border-radius:9px;border:1px solid var(--border);color:var(--text)}
+
+  /* Live events */
+  .ev-in{color:var(--ok)} .ev-out{color:var(--info)} .ev-deny{color:var(--err)}
+  .stream-dot{width:8px;height:8px;border-radius:50%;background:var(--err);display:inline-block}
+  .stream-dot.live{background:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 50%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+  /* Topbar */
+  .topbar{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+  .topbar .sp{flex:1}
+  .iconbtn{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--dim);cursor:pointer;font-size:15px;display:grid;place-items:center}
+  .iconbtn:hover{color:var(--text);border-color:var(--border-strong)}
+
+  /* Toast */
+  #toasts{position:fixed;bottom:18px;right:18px;display:flex;flex-direction:column;gap:8px;z-index:100}
+  .toast{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--info);border-radius:9px;padding:10px 14px;box-shadow:var(--shadow);font-size:13px;max-width:340px;animation:slidein .2s}
+  .toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--err)}
+  @keyframes slidein{from{transform:translateX(20px);opacity:0}to{transform:none;opacity:1}}
+
+  a{color:var(--accent-ink)}
+  .hint{font-size:12px;color:var(--faint);margin-top:4px}
+  .warn-banner{background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--text);border-radius:9px;padding:9px 13px;font-size:13px;margin-bottom:16px;display:none}
+  .warn-banner.show{display:block}
+
+  @media(max-width:720px){.app{grid-template-columns:1fr}aside{position:static;height:auto;flex-direction:column;border-right:none;border-bottom:1px solid var(--border)}nav{flex-direction:row;flex-wrap:wrap}main{padding:20px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><div class="mk">🔐</div><div><b>C3 Console</b><small id="brandsub">access middleware</small></div></div>
+    <nav id="nav"></nav>
+    <div class="side-foot">
+      <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-txt">connecting…</span></div>
+      <div id="ver">—</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="sp"></div>
+      <button class="iconbtn" id="refresh" title="Refresh">⟳</button>
+      <button class="iconbtn" id="theme" title="Toggle theme">◐</button>
+    </div>
+    <div class="warn-banner" id="wbanner"></div>
+
+    <!-- OVERVIEW -->
+    <section class="page" data-page="overview">
+      <div class="head"><div><h1>Overview</h1><p>Panel identity, live status, and service metrics.</p></div></div>
+      <div class="grid g4" id="stats"></div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card"><h3>Device</h3><dl class="kv" id="device"></dl></div>
+        <div class="card"><h3>Door status</h3><div id="doorstatus"></div></div>
+      </div>
+    </section>
+
+    <!-- LIVE -->
+    <section class="page" data-page="live">
+      <div class="head">
+        <div><h1>Live events</h1><p>Realtime access events streamed from the panel.</p></div>
+        <div class="row" style="flex:none">
+          <button class="btn pri" id="streamtoggle">Start stream</button>
+          <button class="btn sm" id="clearev">Clear</button>
+        </div>
+      </div>
+      <div style="margin-bottom:10px"><span class="stream-dot" id="sdot"></span> <span id="sstat" class="mono" style="font-size:12px;color:var(--faint)">stopped</span></div>
+      <div class="tblwrap"><table><thead><tr><th>Time</th><th>Card</th><th>Name</th><th>Reader</th><th>Dir</th><th>Event</th></tr></thead><tbody id="evbody"><tr><td class="empty" colspan="6">Start the stream, then swipe a card.</td></tr></tbody></table></div>
+    </section>
+
+    <!-- CARDS -->
+    <section class="page" data-page="cards">
+      <div class="head"><div><h1>Cards &amp; roles</h1><p>Enrolled users, their role, and door access.</p></div>
+        <button class="btn" id="reloadcards">Reload</button>
+      </div>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Enroll / update card</h3>
+          <div class="field"><label>Cardholder name</label><input id="c-name" placeholder="e.g. Sara Ahmed"></div>
+          <div class="row">
+            <div class="field" style="flex:2"><label>Card number</label><input id="c-card" placeholder="212532046" inputmode="numeric"></div>
+            <div class="field"><label>PIN (optional)</label><input id="c-pin" placeholder="auto = card no"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Role</label><select id="c-role"></select></div>
+            <div class="field"><label>Timezone id</label><input id="c-tz" value="1" inputmode="numeric"></div>
+          </div>
+          <div class="field"><label>Doors</label><div class="checks" id="c-doors">
+            <label><input type="checkbox" value="1" checked> Door 1</label>
+            <label><input type="checkbox" value="2" checked> Door 2</label>
+            <label><input type="checkbox" value="3"> Door 3</label>
+            <label><input type="checkbox" value="4"> Door 4</label>
+          </div></div>
+          <button class="btn pri" id="enroll">Enroll card</button>
+          <div class="hint" id="writehint"></div>
+        </div>
+        <div class="card">
+          <h3>Roles</h3>
+          <p style="font-size:13px;color:var(--dim);margin:0 0 10px">Role is stored in the panel's <span class="mono">Group</span> field. Time/direction rules are enforced by the middleware.</p>
+          <dl class="kv">
+            <dt><span class="badge b-student">student</span></dt><dd>enter 07:00–07:30, exit 13:30–14:00</dd>
+            <dt><span class="badge b-teacher">teacher</span></dt><dd>working hours, not holidays</dd>
+            <dt><span class="badge b-administrator">admin</span></dt><dd>all doors, all times</dd>
+          </dl>
+          <p class="hint">Enforcement engine configurable in a later step; roles assignable now.</p>
+        </div>
+      </div>
+      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Enrolled (<span id="cardcount">0</span>)</h3>
+      <div class="tblwrap"><table><thead><tr><th>Name</th><th>Card no</th><th>PIN</th><th>Role</th><th>Doors</th><th>Status</th><th></th></tr></thead><tbody id="cardbody"></tbody></table></div>
+    </section>
+
+    <!-- DOORS -->
+    <section class="page" data-page="doors">
+      <div class="head"><div><h1>Doors &amp; outputs</h1><p>Pulse relays, drive aux outputs, cancel alarms.</p></div>
+        <button class="btn" id="refreshdoors">Refresh status</button>
+      </div>
+      <div class="grid g2">
+        <div class="card"><h3>Open door</h3>
+          <div class="field"><label>Duration (seconds)</label><input id="d-sec" value="5" inputmode="numeric"></div>
+          <div class="row" id="doorbtns"></div>
+        </div>
+        <div class="card"><h3>Auxiliary output</h3>
+          <div class="row">
+            <div class="field"><label>Aux #</label><input id="a-n" value="1" inputmode="numeric"></div>
+            <div class="field"><label>Seconds</label><input id="a-sec" value="5" inputmode="numeric"></div>
+          </div>
+          <div class="row"><button class="btn" id="aux-on">Turn on</button><button class="btn" id="aux-off">Turn off</button></div>
+          <h3 style="margin-top:18px">Alarm</h3>
+          <button class="btn danger" id="cancelalarm">Cancel alarm</button>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px"><h3>Live door status</h3><div id="doorstatus2"></div></div>
+    </section>
+
+    <!-- TABLES -->
+    <section class="page" data-page="tables">
+      <div class="head"><div><h1>Data tables</h1><p>Read any table stored on the panel.</p></div></div>
+      <div class="row" style="max-width:420px;margin-bottom:14px">
+        <div class="field" style="margin:0"><label>Table</label><select id="t-name"></select></div>
+        <button class="btn" id="t-load" style="flex:none">Load</button>
+      </div>
+      <div class="tblwrap" id="t-out"><div class="empty">Pick a table and load.</div></div>
+    </section>
+
+    <!-- DEVICE -->
+    <section class="page" data-page="device">
+      <div class="head"><div><h1>Device</h1><p>Parameters, clock, and panel control.</p></div></div>
+      <div class="grid g2">
+        <div class="card"><h3>Read parameters</h3>
+          <div class="field"><label>Keys (comma-separated, blank = common set)</label><input id="p-keys" placeholder="~SerialNumber,IPAddress,LockCount"></div>
+          <button class="btn" id="p-get">Read</button>
+          <pre id="p-out" style="margin-top:12px;display:none"></pre>
+        </div>
+        <div class="card"><h3>Set parameter</h3>
+          <div class="row">
+            <div class="field"><label>Key</label><input id="p-k" placeholder="Door1Drivertime"></div>
+            <div class="field"><label>Value</label><input id="p-v" placeholder="5"></div>
+          </div>
+          <button class="btn" id="p-set">Write parameter</button>
+          <h3 style="margin-top:18px">Panel control</h3>
+          <div class="row">
+            <button class="btn" id="timesync">Sync clock</button>
+            <button class="btn danger" id="restart">Restart panel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="page" data-page="settings">
+      <div class="head"><div><h1>Settings</h1><p>Connection to the middleware API.</p></div></div>
+      <div class="card" style="max-width:520px">
+        <div class="field"><label>API base URL</label><input id="s-base" placeholder="(same origin)"></div>
+        <div class="field"><label>API key (bearer)</label><input id="s-key" type="password" placeholder="blank if auth disabled"></div>
+        <button class="btn pri" id="s-save">Save &amp; reconnect</button>
+        <div class="hint">Stored in this browser only (localStorage). The console is served by the middleware at <span class="mono">/ui</span>.</div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toasts"></div>
+
+<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const store={get k(){return localStorage.getItem('c3_key')||''},set k(v){localStorage.setItem('c3_key',v)},
+  get base(){return localStorage.getItem('c3_base')||''},set base(v){localStorage.setItem('c3_base',v)}};
+let CFG={allow_writes:false,roles:['none','student','teacher','administrator']};
+
+function toast(msg,type){const t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;t.style.transform='translateX(20px)';setTimeout(()=>t.remove(),200)},3200);}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+async function api(path,opts={}){
+  const h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
+  if(store.k) h['Authorization']='Bearer '+store.k;
+  const r=await fetch(store.base+path,Object.assign({},opts,{headers:h}));
+  const ct=r.headers.get('content-type')||'';
+  const body=ct.includes('json')?await r.json().catch(()=>({})):await r.text();
+  if(!r.ok){const m=(body&&body.error)?body.error:(r.status+' '+r.statusText);throw new Error(m);}
+  return body;
+}
+
+/* ---- navigation ---- */
+const PAGES=[['overview','▤','Overview'],['live','◉','Live events'],['cards','▦','Cards & roles'],
+  ['doors','⊞','Doors'],['tables','☰','Data tables'],['device','⚙','Device'],['settings','⚙','Settings']];
+const nav=$('#nav');
+PAGES.forEach(([id,ico,label])=>{const b=document.createElement('button');b.dataset.go=id;b.innerHTML=`<span class="ico">${ico}</span>${label}`;b.onclick=()=>go(id);nav.append(b);});
+function go(id){$$('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===id));$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.go===id));location.hash=id;
+  if(id==='overview')loadOverview(); if(id==='cards')loadCards(); if(id==='tables')loadTables(); if(id==='doors')loadDoorStatus();}
+
+/* ---- overview ---- */
+async function loadOverview(){
+  try{
+    const [dev,st,cfg]=await Promise.all([api('/device'),api('/status').catch(()=>null),api('/config')]);
+    CFG=cfg; applyCfg();
+    $('#device').innerHTML=Object.entries({'Model':dev.device_name,'Serial':dev.serial_number,'Firmware':dev.firmware,'MAC':dev.mac,'IP':dev.ip_address,'Doors':dev.doors}).map(([k,v])=>`<dt>${k}</dt><dd>${esc(v||'—')}</dd>`).join('');
+    renderDoorStatus(st,'#doorstatus');
+    const met=await api('/metrics').catch(()=>'');
+    const g=k=>{const m=met.match(new RegExp(k+'\\s+([0-9]+)'));return m?m[1]:'—';};
+    $('#stats').innerHTML=[
+      ['Panel',cfg.panel_connected?'Online':'Offline','conn'],
+      ['Events',g('zc3_events_total'),''],
+      ['Requests',g('zc3_http_requests_total'),''],
+      ['Writes',cfg.allow_writes?'Enabled':'Locked','']
+    ].map(([l,n])=>`<div class="card stat"><div class="n">${esc(n)}</div><div class="l">${l}</div></div>`).join('');
+  }catch(e){toast(e.message,'err');}
+}
+function renderDoorStatus(st,sel){
+  const el=$(sel); if(!st||!st.doors){el.innerHTML='<div class="empty">No status.</div>';return;}
+  el.innerHTML='<div class="grid g2">'+st.doors.map(d=>`<div class="pill" style="justify-content:space-between;width:100%">Door ${d.door}<span>${d.relay_on?'🔓 relay on':'🔒 locked'} · ${d.sensor_on?'sensor':'—'}</span></div>`).join('')+'</div>';
+}
+
+/* ---- cards ---- */
+async function loadCards(){
+  try{
+    const users=await api('/users');
+    $('#cardcount').textContent=users.length;
+    const tb=$('#cardbody');
+    if(!users.length){tb.innerHTML='<tr><td class="empty" colspan="7">No cards enrolled.</td></tr>';return;}
+    tb.innerHTML=users.map(u=>{
+      const doors=(u.auth||[]).flatMap(a=>a.doors||[]);
+      const role=u.role||'none';
+      return `<tr>
+        <td>${esc(u.name||'—')}</td>
+        <td class="mono">${esc(u.card_no)}</td>
+        <td class="mono">${esc(u.pin)}</td>
+        <td><span class="badge b-${esc(role)}">${esc(role)}</span></td>
+        <td class="mono">${doors.join(', ')||'—'}</td>
+        <td>${u.disabled?'<span class="pill" style="color:var(--err)">disabled</span>':'<span class="pill" style="color:var(--ok)">active</span>'}</td>
+        <td style="text-align:right"><button class="btn sm danger" data-del="${esc(u.card_no)}" data-name="${esc(u.name||u.card_no)}">Revoke</button></td>
+      </tr>`;}).join('');
+    $$('#cardbody [data-del]').forEach(b=>b.onclick=()=>revoke(b.dataset.del,b.dataset.name));
+  }catch(e){toast(e.message,'err');}
+}
+async function enroll(){
+  const doors=$$('#c-doors input:checked').map(c=>+c.value);
+  const card={name:$('#c-name').value.trim(),card_no:$('#c-card').value.trim(),pin:$('#c-pin').value.trim(),role:$('#c-role').value,timezone:+$('#c-tz').value||1,doors};
+  if(!card.card_no){toast('Card number is required','err');return;}
+  try{await api('/cards',{method:'POST',body:JSON.stringify(card)});toast('Enrolled '+(card.name||card.card_no),'ok');$('#c-name').value='';$('#c-card').value='';$('#c-pin').value='';loadCards();}
+  catch(e){toast(e.message,'err');}
+}
+async function revoke(cardNo,name){
+  if(!confirm('Revoke card for '+name+'?'))return;
+  try{await api('/cards/'+encodeURIComponent(cardNo),{method:'DELETE'});toast('Revoked '+name,'ok');loadCards();}
+  catch(e){toast(e.message,'err');}
+}
+
+/* ---- doors ---- */
+async function loadDoorStatus(){try{const st=await api('/status');renderDoorStatus(st,'#doorstatus2');}catch(e){$('#doorstatus2').innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
+function buildDoorBtns(n){$('#doorbtns').innerHTML='';for(let i=1;i<=(n||2);i++){const b=document.createElement('button');b.className='btn pri';b.textContent='Open door '+i;b.onclick=()=>openDoor(i);$('#doorbtns').append(b);}}
+async function openDoor(n){try{const r=await api('/doors/'+n+'/open',{method:'POST',body:JSON.stringify({seconds:+$('#d-sec').value||5})});toast('Door '+n+' opened '+r.seconds+'s','ok');}catch(e){toast(e.message,'err');}}
+
+/* ---- tables ---- */
+async function loadTables(){try{const names=await api('/tables');const sel=$('#t-name');if(sel.dataset.done)return;sel.innerHTML=names.map(n=>`<option>${esc(n)}</option>`).join('');sel.dataset.done='1';}catch(e){toast(e.message,'err');}}
+async function loadTable(){const name=$('#t-name').value;try{const rows=await api('/tables/'+name);const out=$('#t-out');if(!rows||!rows.length){out.innerHTML='<div class="empty">Empty table.</div>';return;}const cols=Object.keys(rows[0]);out.innerHTML=`<table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td class="mono">${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;}catch(e){$('#t-out').innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
+
+/* ---- device ---- */
+async function getParams(){const keys=$('#p-keys').value.trim();try{const m=await api('/params'+(keys?'?keys='+encodeURIComponent(keys):''));$('#p-out').style.display='block';$('#p-out').textContent=JSON.stringify(m,null,2);}catch(e){toast(e.message,'err');}}
+async function setParam(){const k=$('#p-k').value.trim();if(!k){toast('Key required','err');return;}try{await api('/params',{method:'PUT',body:JSON.stringify({[k]:$('#p-v').value})});toast('Parameter set','ok');}catch(e){toast(e.message,'err');}}
+
+/* ---- live events (SSE over fetch, supports auth header) ---- */
+let streaming=false,abort=null;
+async function toggleStream(){if(streaming){abort&&abort.abort();return;}
+  streaming=true;abort=new AbortController();
+  $('#streamtoggle').textContent='Stop stream';$('#sdot').classList.add('live');$('#sstat').textContent='live';
+  const users=await api('/users').catch(()=>[]);const names={};users.forEach(u=>names[u.card_no]=u.name);
+  if($('#evbody').children[0]&&$('#evbody').children[0].querySelector('.empty'))$('#evbody').innerHTML='';
+  try{
+    const h={};if(store.k)h['Authorization']='Bearer '+store.k;
+    const r=await fetch(store.base+'/events',{headers:h,signal:abort.signal});
+    const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
+    while(true){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      let idx;while((idx=buf.indexOf('\n\n'))>=0){const chunk=buf.slice(0,idx);buf=buf.slice(idx+2);
+        const line=chunk.split('\n').find(l=>l.startsWith('data:'));if(line){try{addEvent(JSON.parse(line.slice(5).trim()),names);}catch(_){}}}}
+  }catch(e){if(e.name!=='AbortError')toast('Stream: '+e.message,'err');}
+  streaming=false;$('#streamtoggle').textContent='Start stream';$('#sdot').classList.remove('live');$('#sstat').textContent='stopped';
+}
+function addEvent(ev,names){
+  const tb=$('#evbody');const tr=document.createElement('tr');
+  const denied=/Denied|Unregistered|Illegal|Expired|Error/i.test(ev.event_name||'');
+  const dir=ev.in_out==='in'?'<span class="ev-in">▸ in</span>':ev.in_out==='out'?'<span class="ev-out">◂ out</span>':'—';
+  const t=(ev.time||'').replace('T',' ').slice(0,19);
+  tr.innerHTML=`<td class="mono">${esc(t)}</td><td class="mono">${esc(ev.card_no||'—')}</td><td>${esc(names[ev.card_no]||'')}</td><td class="mono">${esc(ev.reader??'—')}</td><td>${dir}</td><td class="${denied?'ev-deny':''}">${esc(ev.event_name||ev.event_type)}</td>`;
+  tb.prepend(tr);while(tb.children.length>200)tb.lastChild.remove();
+}
+
+/* ---- config / boot ---- */
+function applyCfg(){
+  $('#brandsub').textContent=CFG.panel_id||'access middleware';
+  $('#ver').textContent='v'+(CFG.version||'?');
+  const roles=CFG.roles||['none','student','teacher','administrator'];
+  $('#c-role').innerHTML=roles.map(r=>`<option value="${r}"${r==='student'?' selected':''}>${r}</option>`).join('');
+  const wb=$('#wbanner');
+  if(!CFG.allow_writes){wb.classList.add('show');wb.innerHTML='⚠ Writes are locked. Enrolling or revoking cards needs <span class="mono">ALLOW_WRITES=true</span> on the middleware.';$('#writehint').textContent='Writes locked (ALLOW_WRITES=false) — enroll will fail until enabled.';}
+  else{wb.classList.remove('show');$('#writehint').textContent='';}
+  buildDoorBtns(2);
+}
+async function ping(){
+  try{const c=await api('/config');CFG=c;applyCfg();$('#conn-dot').className='dot '+(c.panel_connected?'up':'down');$('#conn-txt').textContent=c.panel_connected?'panel online':'panel offline';}
+  catch(e){$('#conn-dot').className='dot down';$('#conn-txt').textContent='no middleware';}
+}
+
+/* events */
+$('#enroll').onclick=enroll; $('#reloadcards').onclick=loadCards; $('#refresh').onclick=()=>go(location.hash.slice(1)||'overview');
+$('#t-load').onclick=loadTable; $('#p-get').onclick=getParams; $('#p-set').onclick=setParam;
+$('#refreshdoors').onclick=loadDoorStatus; $('#cancelalarm').onclick=async()=>{try{await api('/alarm/cancel',{method:'POST'});toast('Alarm cancelled','ok');}catch(e){toast(e.message,'err');}};
+$('#aux-on').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:true,seconds:+$('#a-sec').value||5})});toast('Aux on','ok');}catch(e){toast(e.message,'err');}};
+$('#aux-off').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:false})});toast('Aux off','ok');}catch(e){toast(e.message,'err');}};
+$('#timesync').onclick=async()=>{try{await api('/time/sync',{method:'POST'});toast('Clock synced','ok');}catch(e){toast(e.message,'err');}};
+$('#restart').onclick=async()=>{if(!confirm('Restart the panel? It will drop and reconnect.'))return;try{await api('/restart',{method:'POST'});toast('Panel restarting','ok');}catch(e){toast(e.message,'err');}};
+$('#streamtoggle').onclick=toggleStream; $('#clearev').onclick=()=>$('#evbody').innerHTML='<tr><td class="empty" colspan="6">Cleared.</td></tr>';
+$('#theme').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');const sys=matchMedia('(prefers-color-scheme:dark)').matches;const dark=c?c==='dark':sys;document.documentElement.setAttribute('data-theme',dark?'light':'dark');localStorage.setItem('c3_theme',dark?'light':'dark');};
+$('#s-save').onclick=()=>{store.base=$('#s-base').value.trim();store.k=$('#s-key').value.trim();toast('Saved','ok');ping();go('overview');};
+
+/* init */
+const th=localStorage.getItem('c3_theme');if(th)document.documentElement.setAttribute('data-theme',th);
+$('#s-base').value=store.base;$('#s-key').value=store.k;
+go(location.hash.slice(1)||'overview');
+ping();setInterval(ping,10000);
+</script>
+</body>
+</html>

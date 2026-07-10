@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,9 @@ type Options struct {
 	CORSOrigins     []string
 	EventBufferSize int
 	DoorDefaultSecs int
+	AllowWrites     bool
+	PanelID         string
+	Version         string
 	Logger          *slog.Logger
 }
 
@@ -81,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	mux.HandleFunc("GET /readyz", s.handleReady)
+	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("GET /device", s.handleDevice)
 	mux.HandleFunc("GET /params", s.handleGetParams)
 	mux.HandleFunc("PUT /params", s.handleSetParams)
@@ -99,7 +104,27 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.HandleFunc("GET /events/history", s.handleHistory)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
+
+	// Embedded admin web UI (same-origin with the API).
+	mux.Handle("GET /ui/", http.StripPrefix("/ui/", uiHandler()))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	return s.cors(s.auth(logMW(s.log, mux, &s.reqTotal)))
+}
+
+// isPublic reports whether a path bypasses API-key auth (UI assets + probes).
+func isPublic(path string) bool {
+	switch path {
+	case "/", "/healthz", "/readyz", "/metrics", "/config", "/favicon.ico":
+		return true
+	}
+	return strings.HasPrefix(path, "/ui")
 }
 
 // Fanout receives events from the panel loop and pushes them to SSE subscribers.
@@ -119,6 +144,19 @@ func (s *Server) Fanout(ev c3.Event) {
 }
 
 // ---- handlers ----
+
+// handleConfig exposes non-sensitive runtime flags for the web UI.
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	ready := s.ready == nil || s.ready()
+	writeJSON(w, 200, map[string]any{
+		"allow_writes":     s.opt.AllowWrites,
+		"panel_id":         s.opt.PanelID,
+		"version":          s.opt.Version,
+		"panel_connected":  ready,
+		"door_default_sec": s.opt.DoorDefaultSecs,
+		"roles":            []string{"none", "student", "teacher", "administrator"},
+	})
+}
 
 func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 	if s.ready != nil && !s.ready() {
@@ -311,13 +349,14 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opt.APIKey != "" && r.URL.Path != "/healthz" {
-			if subtleCompare(r.Header.Get("Authorization"), "Bearer "+s.opt.APIKey) {
-				next.ServeHTTP(w, r)
+		if s.opt.APIKey != "" && !isPublic(r.URL.Path) {
+			// Accept the key via Authorization header or ?api_key= (for EventSource).
+			ok := subtleCompare(r.Header.Get("Authorization"), "Bearer "+s.opt.APIKey) ||
+				subtleCompare(r.URL.Query().Get("api_key"), s.opt.APIKey)
+			if !ok {
+				writeJSON(w, 401, map[string]string{"error": "unauthorized"})
 				return
 			}
-			writeJSON(w, 401, map[string]string{"error": "unauthorized"})
-			return
 		}
 		next.ServeHTTP(w, r)
 	})

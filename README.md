@@ -30,6 +30,23 @@ curl localhost:8080/device
 curl -N localhost:8080/events   # live event stream (SSE)
 ```
 
+## Web console
+
+A full admin UI is **embedded in the binary** and served same-origin at
+**<http://localhost:8080/ui>** (the root `/` redirects there). No build step, no
+separate deploy. It manages every part of the API:
+
+- **Overview** — device identity, live door status, service metrics
+- **Live events** — realtime swipe stream (SSE)
+- **Cards & roles** — enrol / revoke, assign role (student / teacher / administrator)
+- **Doors** — pulse relays, aux outputs, cancel alarm, live status
+- **Data tables** — read any panel table
+- **Device** — read/set parameters, sync clock, restart
+- **Settings** — API base URL + key (stored in the browser)
+
+Enroll/revoke require `ALLOW_WRITES=true`; the console shows a banner when writes
+are locked. Set an `API_KEY` and enter it under Settings to authenticate.
+
 ## Configuration
 
 Everything is an environment variable (optionally seeded from `.env`; real env

@@ -31,6 +31,9 @@ func (c *Client) ListCards(ctx context.Context) ([]Card, error) {
 		cards = append(cards, Card{
 			PIN:      u.PIN,
 			CardNo:   u.CardNo,
+			Name:     u.Name,
+			Role:     u.Role,
+			Group:    u.Group,
 			Doors:    doors,
 			Timezone: tz,
 			Disabled: u.Disabled,
@@ -58,6 +61,11 @@ func (c *Client) SetCard(ctx context.Context, card Card) error {
 	if tz == 0 {
 		tz = 1 // default 24h timezone
 	}
+	// Role (if given) sets the panel Group field; explicit Group otherwise.
+	group := card.Group
+	if g, ok := GroupForRole(card.Role); ok {
+		group = g
+	}
 
 	// Preserve an existing user's UID on update; assign the next free UID on
 	// insert (the panel keys the user table by UID).
@@ -82,7 +90,7 @@ func (c *Client) SetCard(ctx context.Context, card Card) error {
 		"CardNo":         card.CardNo,
 		"Name":           card.Name,
 		"Password":       "",
-		"Group":          "0",
+		"Group":          strconv.Itoa(group),
 		"StartTime":      strconv.Itoa(unixOrZero(card.Start)),
 		"EndTime":        strconv.Itoa(unixOrZero(card.End)),
 		"SuperAuthorize": "0",
