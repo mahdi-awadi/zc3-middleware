@@ -80,10 +80,9 @@ func Load() (Config, error) {
 }
 
 func (c Config) validate() error {
-	if c.PanelAddr == "" {
-		return fmt.Errorf("config: PANEL_ADDR is required (host:port of the C3 panel)")
-	}
-	if !strings.Contains(c.PanelAddr, ":") {
+	// PANEL_ADDR is optional: gates added from the console (persisted in the
+	// gym data file) take over as the connection target.
+	if c.PanelAddr != "" && !strings.Contains(c.PanelAddr, ":") {
 		return fmt.Errorf("config: PANEL_ADDR must be host:port, got %q", c.PanelAddr)
 	}
 	if c.DoorDefaultSeconds <= 0 || c.DoorDefaultSeconds > 255 {

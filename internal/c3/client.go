@@ -59,6 +59,22 @@ func New(addr string, opts ...Option) *Client {
 
 var _ Panel = (*Client)(nil)
 
+// Addr returns the panel address the client dials.
+func (c *Client) Addr() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.addr
+}
+
+// SetAddr changes the address used for the NEXT dial. Callers switch panels at
+// runtime with SetAddr followed by Close: the supervisor's reconnect loop then
+// re-establishes the session against the new address.
+func (c *Client) SetAddr(addr string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.addr = addr
+}
+
 // Connect opens the TCP session and performs the session-less handshake.
 func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()

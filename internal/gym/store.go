@@ -22,8 +22,10 @@ type data struct {
 	Config      Config    `json:"config"`
 	NextID      int       `json:"next_id"`
 	NextReceipt int       `json:"next_receipt"`
+	NextGateID  int       `json:"next_gate_id"`
 	Members     []*Member `json:"members"`
 	Cards       []*CardRec `json:"cards"`
+	Gates       []*Gate    `json:"gates"`
 	Checkins    []Checkin  `json:"checkins"`
 }
 
@@ -99,12 +101,18 @@ func (s *Store) Config() Config {
 	return s.d.Config
 }
 
-// SetConfig replaces the gym policy.
+// SetConfig replaces the gym policy. Gate state (active gate, plan→gate map)
+// is server-managed: the active gate is always preserved, and the plan map is
+// preserved unless the caller provides one.
 func (s *Store) SetConfig(c Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if c.WarnDays <= 0 {
 		c.WarnDays = 7
+	}
+	c.ActiveGate = s.d.Config.ActiveGate
+	if c.PlanGates == nil {
+		c.PlanGates = s.d.Config.PlanGates
 	}
 	s.d.Config = c
 	return s.save()
@@ -615,9 +623,9 @@ func (s *Store) Cards() []CardView {
 
 // ---- gate decisions ----
 
-// Decide evaluates a swipe of cardNo at time t. It does NOT record anything —
-// the engine calls RecordCheckin with the outcome.
-func (s *Store) Decide(cardNo string, t time.Time) (Decision, *MemberView) {
+// Decide evaluates a swipe of cardNo at the given door at time t. It does NOT
+// record anything — the engine calls RecordCheckin with the outcome.
+func (s *Store) Decide(cardNo string, door int, t time.Time) (Decision, *MemberView) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if !s.d.Config.Enabled {
@@ -644,7 +652,14 @@ func (s *Store) Decide(cardNo string, t time.Time) (Decision, *MemberView) {
 		return Decision{Result: ResultDenied, Reason: "الاشتراك مجمّد", Open: false}, &v
 	case StatusExpired, StatusNone:
 		return Decision{Result: ResultDenied, Reason: "الاشتراك منتهٍ", Open: false}, &v
-	case StatusExpiring:
+	}
+	// Plan → gate permission: the swipe's door resolves to a gate, and the
+	// member's access level must include it.
+	if g := s.gateForDoor(door); g != nil && !s.planAllowsGate(v.Plan, g) {
+		return Decision{Result: ResultDenied,
+			Reason: "الخطة لا تشمل بوابة «" + g.Name + "»", Open: false}, &v
+	}
+	if v.Status == StatusExpiring {
 		return Decision{Result: ResultWarn, Reason: "الاشتراك ينتهي قريباً",
 			Open: true, DaysLeft: v.DaysLeft}, &v
 	}

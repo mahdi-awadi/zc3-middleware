@@ -13,12 +13,20 @@ func clearEnv(keys ...string) {
 	}
 }
 
-func TestLoadRequiresPanelAddr(t *testing.T) {
+func TestLoadPanelAddrOptional(t *testing.T) {
+	// PANEL_ADDR may be empty: gates added from the console take over as the
+	// connection target. A malformed value must still be rejected.
 	clearEnv("PANEL_ADDR", "ENV_FILE")
 	os.Setenv("ENV_FILE", "/nonexistent")
 	defer clearEnv("ENV_FILE")
+	cfg, err := Load()
+	if err != nil || cfg.PanelAddr != "" {
+		t.Fatalf("empty PANEL_ADDR should load: err=%v addr=%q", err, cfg.PanelAddr)
+	}
+	os.Setenv("PANEL_ADDR", "no-port-here")
+	defer clearEnv("PANEL_ADDR")
 	if _, err := Load(); err == nil {
-		t.Fatal("expected error when PANEL_ADDR missing")
+		t.Fatal("expected error for malformed PANEL_ADDR")
 	}
 }
 

@@ -142,6 +142,7 @@ in [`docs/api.html`](docs/api.html) (open locally, or import the spec into
 | `POST` | `/doors/{n}/open` | Manual gate open (reception) |
 | `GET/POST` | `/gym/members` … | Members, subscriptions, renew, freeze, card link |
 | `GET/POST` | `/gym/cards` … | Card registry (blank / suspended / lost) |
+| `GET/POST` | `/gym/gates` … | Gates: LAN scan for C3 panels, add/connect/open, plan→gate access |
 | `GET` | `/gym/summary` | Dashboard stats |
 | `GET` | `/gym/checkins` | Recent gate feed |
 | `GET` | `/gym/gate` | Gate decisions stream (SSE, live feed) |

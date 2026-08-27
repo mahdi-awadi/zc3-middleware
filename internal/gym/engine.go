@@ -153,15 +153,18 @@ func (e *Engine) Handle(ev c3.Event) {
 // Simulate injects a swipe as if the panel reported it (dev / demo / desk
 // reader). It runs the full decision path but never opens a door when
 // dryRun is requested by the caller via openDoors=false.
-func (e *Engine) Simulate(cardNo string, openDoors bool) GateUpdate {
-	return e.process(cardNo, 1, 1, "in", time.Now(), !openDoors)
+func (e *Engine) Simulate(cardNo string, door int, openDoors bool) GateUpdate {
+	if door <= 0 {
+		door = 1
+	}
+	return e.process(cardNo, door, door, "in", time.Now(), !openDoors)
 }
 
 func (e *Engine) process(cardNo string, door, reader int, dir string, t time.Time, dryRun bool) GateUpdate {
 	if t.IsZero() {
 		t = time.Now()
 	}
-	dec, mv := e.store.Decide(cardNo, t)
+	dec, mv := e.store.Decide(cardNo, door, t)
 
 	// Capture for the link-card flow regardless of outcome.
 	sc := Scan{CardNo: cardNo, Time: time.Now(), Known: mv != nil && mv.CardNo == cardNo}

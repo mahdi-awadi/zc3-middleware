@@ -74,19 +74,19 @@ func TestDecide(t *testing.T) {
 	expired := addMember(t, s, "حسين الربيعي", "300", 1)
 
 	// Unknown card.
-	if d, _ := s.Decide("999", now); d.Result != ResultUnknown || d.Open {
+	if d, _ := s.Decide("999", 1, now); d.Result != ResultUnknown || d.Open {
 		t.Fatalf("unknown: %+v", d)
 	}
 	// Active card opens.
-	if d, mv := s.Decide("100", now); d.Result != ResultGranted || !d.Open || mv.ID != active.ID {
+	if d, mv := s.Decide("100", 1, now); d.Result != ResultGranted || !d.Open || mv.ID != active.ID {
 		t.Fatalf("active: %+v", d)
 	}
 	// Warn window still opens.
-	if d, _ := s.Decide("200", now.AddDate(0, 0, 26)); d.Result != ResultWarn || !d.Open {
+	if d, _ := s.Decide("200", 1, now.AddDate(0, 0, 26)); d.Result != ResultWarn || !d.Open {
 		t.Fatalf("warn: %+v", d)
 	}
 	// Expired denies.
-	if d, _ := s.Decide("300", now.AddDate(0, 2, 0)); d.Result != ResultDenied || d.Open {
+	if d, _ := s.Decide("300", 1, now.AddDate(0, 2, 0)); d.Result != ResultDenied || d.Open {
 		t.Fatalf("expired: %+v", d)
 	}
 	_ = expired
@@ -95,7 +95,7 @@ func TestDecide(t *testing.T) {
 	if _, err := s.Freeze(active.ID, 14, "سفر", now); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := s.Decide("100", now); d.Result != ResultDenied || d.Open {
+	if d, _ := s.Decide("100", 1, now); d.Result != ResultDenied || d.Open {
 		t.Fatalf("frozen: %+v", d)
 	}
 	// Unfreeze extends the end date.
@@ -115,7 +115,7 @@ func TestDecide(t *testing.T) {
 	if _, err := s.SetCardStatus("100", CardSuspended); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := s.Decide("100", now); d.Result != ResultDenied || d.Open {
+	if d, _ := s.Decide("100", 1, now); d.Result != ResultDenied || d.Open {
 		t.Fatalf("suspended card: %+v", d)
 	}
 	// A suspended-but-linked card cannot silently return to the blank pool.
@@ -126,7 +126,7 @@ func TestDecide(t *testing.T) {
 	if _, err := s.SetCardStatus("100", CardLinked); err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := s.Decide("100", now); d.Result != ResultGranted {
+	if d, _ := s.Decide("100", 1, now); d.Result != ResultGranted {
 		t.Fatalf("restored card: %+v", d)
 	}
 }
@@ -222,4 +222,69 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	if len(s2.Cards()) != 1 {
 		t.Fatal("cards not persisted")
 	}
+}
+
+func TestGatesAndPlanAccess(t *testing.T) {
+	s := newStore(t)
+	g1, err := s.AddGate(Gate{Name: "البوابة الرئيسية", Addr: "192.168.0.102:4370", Door: 1}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g2, err := s.AddGate(Gate{Name: "قاعة الحصص", Addr: "192.168.0.102:4370", Door: 2}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First gate auto-becomes the active connection target.
+	if ag := s.ActiveGate(); ag == nil || ag.ID != g1.ID {
+		t.Fatalf("active gate = %+v", ag)
+	}
+	// Duplicate addr+door rejected.
+	if _, err := s.AddGate(Gate{Addr: "192.168.0.102:4370", Door: 1}, now); err == nil {
+		t.Fatal("duplicate gate must fail")
+	}
+
+	// Member on "gym only" plan; restrict that plan to gate-1 only.
+	_, err = s.AddMember(Member{Name: "عضو صالة", CardNo: "9001"},
+		NewSubInput{Months: 1, Access: AccessGym}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPlanGates(map[string][]string{AccessGym: {g1.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	// Door 1 (gate-1) -> granted; door 2 (gate-2) -> denied by plan.
+	if d, _ := s.Decide("9001", 1, now); d.Result != ResultGranted {
+		t.Fatalf("gate1: %+v", d)
+	}
+	if d, _ := s.Decide("9001", 2, now); d.Result != ResultDenied || d.Open {
+		t.Fatalf("gate2 should deny: %+v", d)
+	}
+	// Unmapped plan (full) passes everywhere.
+	f, _ := s.AddMember(Member{Name: "عضو كامل", CardNo: "9002"},
+		NewSubInput{Months: 1, Access: AccessFull}, now)
+	_ = f
+	if d, _ := s.Decide("9002", 2, now); d.Result != ResultGranted {
+		t.Fatalf("full plan: %+v", d)
+	}
+	// A door with no configured gate is not restricted.
+	if d, _ := s.Decide("9001", 3, now); d.Result != ResultGranted {
+		t.Fatalf("unmapped door: %+v", d)
+	}
+
+	// Deleting a gate scrubs mappings and active state.
+	if err := s.DeleteGate(g1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ag := s.ActiveGate(); ag != nil {
+		t.Fatalf("active gate should clear, got %+v", ag)
+	}
+	if ids := s.Config().PlanGates[AccessGym]; len(ids) != 0 {
+		t.Fatalf("plan mapping not scrubbed: %v", ids)
+	}
+	// With the mapping gone, door 1 resolves to no gate -> allowed again... but
+	// gate-2 still exists on door 2 and the plan has no mapping now -> allowed.
+	if d, _ := s.Decide("9001", 2, now); d.Result != ResultGranted {
+		t.Fatalf("after scrub: %+v", d)
+	}
+	_ = g2
 }

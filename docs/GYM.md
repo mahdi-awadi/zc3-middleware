@@ -23,6 +23,23 @@ Cards linked to gym members are enrolled on the panel with `NoPanelAuth`,
 so the panel itself never opens the door for them — the middleware is the
 sole gate.
 
+## Gates
+
+A **gate** is one physical entrance: a ZKAccess C3 panel address plus a door
+(relay) number — one C3 drives up to 4 doors, so several gates can share an
+address. Gates are managed from the console's **البوابات** screen:
+
+- **فحص الشبكة** sweeps the machine's local subnets for devices listening on
+  TCP 4370 and confirms each with a real C3 handshake (serial, model, door
+  count). Found devices are added as gates in one click.
+- **اتصال** makes a gate's panel the live connection (the supervisor redials
+  it immediately); the choice persists across restarts and overrides
+  `PANEL_ADDR`.
+- **صلاحيات الخطط** maps each access level to the gates it may open. On a
+  swipe the door resolves to its gate; if the member's plan doesn't include
+  it the entry is denied with «الخطة لا تشمل هذه البوابة». A plan with no
+  selection is allowed through every gate.
+
 ## Console
 
 Open **`http://<ip>:8000/`** — the console is the site root. Screens: login,
@@ -70,6 +87,15 @@ GET  /gym/members/{id}/checkins?limit=50
 GET  /gym/cards                        registry (linked | blank | suspended | lost)
 POST /gym/cards                        {serial} — register a blank card
 PUT  /gym/cards/{serial}               {status} — suspend / mark lost / restore
+
+GET  /gym/gates                        gates + active gate + plan→gate map
+POST /gym/gates/scan                   sweep the LAN for ZKAccess C3 panels (TCP 4370 + C3 probe)
+POST /gym/gates                        {name, addr, door} — add a gate (scan result or manual)
+PUT  /gym/gates/{id}                   patch name / addr / door
+DELETE /gym/gates/{id}                 remove (scrubs plan mappings + active state)
+POST /gym/gates/{id}/connect           make this gate's panel the live connection
+POST /gym/gates/{id}/open              pulse the gate's door relay (reception)
+PUT  /gym/gates/plans                  {"gym":["gate-1"],...} access level → allowed gates
 
 GET  /gym/checkins?limit=20            recent gate feed
 GET  /gym/gate                         SSE stream of gate decisions (live feed)

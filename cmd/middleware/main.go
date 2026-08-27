@@ -40,14 +40,28 @@ func run() error {
 
 	log := newLogger(cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
-	log.Info("starting gym system", "version", version, "panel", cfg.PanelAddr, "http", cfg.HTTPAddr)
 
 	// Root context cancelled on SIGINT/SIGTERM for graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Gym data first: the active gate (chosen from the console) decides which
+	// panel to dial; PANEL_ADDR is the fallback for first boot.
+	gymStore, err := gym.Open(cfg.GymDataPath)
+	if err != nil {
+		return err
+	}
+	panelAddr := cfg.PanelAddr
+	if ag := gymStore.ActiveGate(); ag != nil {
+		panelAddr = ag.Addr
+	}
+	log.Info("starting gym system", "version", version, "panel", panelAddr, "http", cfg.HTTPAddr)
+	if panelAddr == "" {
+		log.Warn("no panel address yet — add a gate from the console (البوابات) or set PANEL_ADDR")
+	}
+
 	// Panel client + connection supervisor.
-	panel := c3.New(cfg.PanelAddr,
+	panel := c3.New(panelAddr,
 		c3.WithTimeout(cfg.IOTimeout),
 		c3.WithPollInterval(cfg.EventPollInterval),
 		c3.WithReplayBacklog(cfg.EventReplayBacklog),
@@ -66,14 +80,17 @@ func run() error {
 	})
 
 	// Gym membership layer: members + subscriptions bound to cards; the gym
-	// engine decides the gate on every swipe and feeds the kiosk screen.
-	gymStore, err := gym.Open(cfg.GymDataPath)
-	if err != nil {
-		return err
-	}
+	// engine decides the gate on every swipe and feeds the live feed.
 	gymEngine := gym.NewEngine(gymStore, panel, cfg.DoorDefaultSeconds, cfg.IOTimeout, log)
 	go gymEngine.Run(ctx)
 	srv.SetGym(gymStore, gymEngine)
+	// Gate switching from the console: repoint the client and drop the current
+	// session; the supervisor's reconnect loop dials the new address.
+	srv.SetGateSwitch(func(addr string) {
+		log.Info("switching panel connection", "addr", addr)
+		panel.SetAddr(addr)
+		_ = panel.Close()
+	})
 	if gymStore.Config().Enabled {
 		log.Info("gym gate enforcement enabled", "data", cfg.GymDataPath)
 	}

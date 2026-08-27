@@ -7,6 +7,7 @@ package api
 // carries "panel_synced": false.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -18,6 +19,11 @@ import (
 
 // SetGym attaches the gym store + gate engine.
 func (s *Server) SetGym(st *gym.Store, e *gym.Engine) { s.gym, s.gymEngine = st, e }
+
+// SetGateSwitch registers the function that repoints the live panel
+// connection at a new address (wired from main: SetAddr + Close, after which
+// the supervisor redials).
+func (s *Server) SetGateSwitch(fn func(addr string)) { s.gateSwitch = fn }
 
 func (s *Server) gymRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /gym/summary", s.gymGuard(s.handleGymSummary))
@@ -40,6 +46,15 @@ func (s *Server) gymRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /gym/cards", s.gymGuard(s.handleGymCards))
 	mux.HandleFunc("POST /gym/cards", s.gymGuard(s.handleGymCardRegister))
 	mux.HandleFunc("PUT /gym/cards/{serial}", s.gymGuard(s.handleGymCardStatus))
+
+	mux.HandleFunc("GET /gym/gates", s.gymGuard(s.handleGymGates))
+	mux.HandleFunc("POST /gym/gates", s.gymGuard(s.handleGymGateAdd))
+	mux.HandleFunc("POST /gym/gates/scan", s.gymGuard(s.handleGymGateScan))
+	mux.HandleFunc("PUT /gym/gates/plans", s.gymGuard(s.handleGymPlanGates))
+	mux.HandleFunc("PUT /gym/gates/{id}", s.gymGuard(s.handleGymGateUpdate))
+	mux.HandleFunc("DELETE /gym/gates/{id}", s.gymGuard(s.handleGymGateDelete))
+	mux.HandleFunc("POST /gym/gates/{id}/connect", s.gymGuard(s.handleGymGateConnect))
+	mux.HandleFunc("POST /gym/gates/{id}/open", s.gymGuard(s.handleGymGateOpen))
 
 	mux.HandleFunc("GET /gym/checkins", s.gymGuard(s.handleGymCheckins))
 	mux.HandleFunc("GET /gym/scan", s.gymGuard(s.handleGymScan))
@@ -279,6 +294,131 @@ func (s *Server) handleGymCardStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, c)
 }
 
+// ---- gates (physical entrances) ----
+
+// handleGymGates lists gates, the active one, and the plan→gate map.
+func (s *Server) handleGymGates(w http.ResponseWriter, r *http.Request) {
+	cfg := s.gym.Config()
+	ready := s.ready == nil || s.ready()
+	writeJSON(w, 200, map[string]any{
+		"gates":      s.gym.Gates(),
+		"active":     cfg.ActiveGate,
+		"plan_gates": cfg.PlanGates,
+		"connected":  ready,
+	})
+}
+
+// handleGymGateScan sweeps the local network for ZKAccess C3 panels.
+func (s *Server) handleGymGateScan(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	var skip []string
+	if ag := s.gym.ActiveGate(); ag != nil {
+		skip = append(skip, ag.Addr)
+	}
+	devices := s.scan(ctx, skip...)
+	// Mark devices already registered as gates.
+	known := map[string][]string{}
+	for _, g := range s.gym.Gates() {
+		known[g.Addr] = append(known[g.Addr], g.ID)
+	}
+	type row struct {
+		gym.Device
+		GateIDs []string `json:"gate_ids,omitempty"`
+	}
+	out := make([]row, 0, len(devices))
+	for _, d := range devices {
+		out = append(out, row{Device: d, GateIDs: known[d.Addr]})
+	}
+	writeJSON(w, 200, map[string]any{"devices": out})
+}
+
+func (s *Server) handleGymGateAdd(w http.ResponseWriter, r *http.Request) {
+	var g gym.Gate
+	if !decode(w, r, &g) {
+		return
+	}
+	added, err := s.gym.AddGate(g, time.Now())
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	// If this became the active gate (first gate), point the connection at it.
+	if cfg := s.gym.Config(); cfg.ActiveGate == added.ID && s.gateSwitch != nil {
+		s.gateSwitch(added.Addr)
+	}
+	writeJSON(w, 201, added)
+}
+
+func (s *Server) handleGymGateUpdate(w http.ResponseWriter, r *http.Request) {
+	var patch gym.Gate
+	if !decode(w, r, &patch) {
+		return
+	}
+	g, err := s.gym.UpdateGate(r.PathValue("id"), patch)
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, g)
+}
+
+func (s *Server) handleGymGateDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.gym.DeleteGate(r.PathValue("id")); err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "deleted"})
+}
+
+// handleGymGateConnect makes a gate's panel the live connection.
+func (s *Server) handleGymGateConnect(w http.ResponseWriter, r *http.Request) {
+	g, err := s.gym.SetActiveGate(r.PathValue("id"))
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	if s.gateSwitch != nil {
+		s.gateSwitch(g.Addr)
+	}
+	writeJSON(w, 200, map[string]any{"status": "connecting", "gate": g})
+}
+
+// handleGymGateOpen pulses a gate's door relay (reception manual open).
+func (s *Server) handleGymGateOpen(w http.ResponseWriter, r *http.Request) {
+	g, err := s.gym.Gate(r.PathValue("id"))
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	if ag := s.gym.ActiveGate(); ag == nil || ag.Addr != g.Addr {
+		writeJSON(w, 409, map[string]string{"error": "البوابة ليست على اللوحة المتصلة — اتصل بها أولاً"})
+		return
+	}
+	var body struct {
+		Seconds int `json:"seconds"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body.Seconds <= 0 {
+		body.Seconds = s.opt.DoorDefaultSecs
+	}
+	err = s.panel.OpenDoor(r.Context(), g.Door, body.Seconds)
+	respond(w, map[string]any{"status": "ok", "gate": g.ID, "door": g.Door, "seconds": body.Seconds}, err)
+}
+
+// handleGymPlanGates replaces the access-level → gates mapping.
+func (s *Server) handleGymPlanGates(w http.ResponseWriter, r *http.Request) {
+	var m map[string][]string
+	if !decode(w, r, &m) {
+		return
+	}
+	if err := s.gym.SetPlanGates(m); err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, s.gym.Config().PlanGates)
+}
+
 // ---- gate / attendance ----
 
 func (s *Server) handleGymCheckins(w http.ResponseWriter, r *http.Request) {
@@ -315,10 +455,11 @@ func (s *Server) handleGymScanClear(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGymSimulate injects a swipe (demo / desk enrollment without hardware).
-// {"card_no":"...", "dry_run":true} — dry_run skips the door relay.
+// {"card_no":"...", "door":1, "dry_run":true} — dry_run skips the door relay.
 func (s *Server) handleGymSimulate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		CardNo string `json:"card_no"`
+		Door   int    `json:"door"`
 		DryRun bool   `json:"dry_run"`
 	}
 	if !decode(w, r, &body) {
@@ -328,7 +469,7 @@ func (s *Server) handleGymSimulate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "card_no is required"})
 		return
 	}
-	u := s.gymEngine.Simulate(body.CardNo, !body.DryRun)
+	u := s.gymEngine.Simulate(body.CardNo, body.Door, !body.DryRun)
 	writeJSON(w, 200, u)
 }
 

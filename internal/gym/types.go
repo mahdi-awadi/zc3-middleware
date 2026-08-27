@@ -113,6 +113,19 @@ type Checkin struct {
 	Visit     int       `json:"visit,omitempty"` // visit number when granted
 }
 
+// Gate is one physical entrance: a ZKAccess C3 panel address plus the door
+// (relay) number on it. Gates are discovered on the LAN or added manually,
+// and plans grant access per gate.
+type Gate struct {
+	ID      string    `json:"id"`   // "gate-1"
+	Name    string    `json:"name"` // e.g. "البوابة الرئيسية"
+	Addr    string    `json:"addr"` // "192.168.0.102:4370"
+	Door    int       `json:"door"` // relay number on the panel (1..4)
+	SN      string    `json:"sn,omitempty"`
+	Model   string    `json:"model,omitempty"`
+	AddedAt time.Time `json:"added_at"`
+}
+
 // Config is the gym-level policy stored alongside the data.
 type Config struct {
 	Enabled     bool  `json:"enabled"`      // master switch: engine opens doors
@@ -121,6 +134,12 @@ type Config struct {
 	PriceGym    int64 `json:"price_gym"`    // default monthly price: صالة فقط
 	PriceClass  int64 `json:"price_classes"`
 	PriceFull   int64 `json:"price_full"`
+
+	// ActiveGate is the gate whose panel the middleware is connected to.
+	ActiveGate string `json:"active_gate,omitempty"`
+	// PlanGates maps an access level (gym | gym_classes | full) to the gate
+	// IDs it may open. A missing or empty list means ALL gates are allowed.
+	PlanGates map[string][]string `json:"plan_gates,omitempty"`
 }
 
 // Decision is the outcome the engine acts on for one swipe.

@@ -102,6 +102,7 @@ async function go(screen, id) {
       const sub = S.member.subs && S.member.subs[S.member.subs.length-1];
       if (sub) { S.access = sub.access; S.months = sub.months; } S.discount = 0; S.priceEdited = 0; S.pay = 'cash'; }
     if (screen === 'add') { S.pendingCard = ''; S.scan = null; S.months = 3; S.access = 'gym_classes'; S.priceEdited = 0; await api('/gym/scan', {method:'DELETE'}).catch(()=>{}); }
+    if (screen === 'gates') { S.gatesData = await api('/gym/gates'); S.cfg = await fetch('/config').then(r=>r.json()).catch(()=>S.cfg); }
   } catch (e) { if (e.message !== 'unauthorized') toast(e.message, true); }
   render();
 }
@@ -111,10 +112,11 @@ function render() {
   stopTimers();
   const app = $('app');
   if (S.screen === 'login') { app.innerHTML = loginView(); wireLogin(); return; }
-  const titles = {dash:'لوحة التحكم', members:'الأعضاء والاشتراكات', add:'إضافة عضو جديد', profile:'ملف العضو', cards:'إدارة البطاقات', renew:'تجديد ودفع'};
+  const titles = {dash:'لوحة التحكم', members:'الأعضاء والاشتراكات', add:'إضافة عضو جديد', profile:'ملف العضو', cards:'إدارة البطاقات', renew:'تجديد ودفع', gates:'البوابات'};
   const nav = [
     ['dash','لوحة التحكم',''], ['members','الأعضاء', S.summary ? fmtN(S.summary.total_members) : ''],
     ['add','عضو جديد',''], ['cards','البطاقات', S.summary ? fmtN(S.summary.cards_blank) : ''],
+    ['gates','البوابات', S.gatesData ? String(S.gatesData.gates.length || '') : ''],
   ];
   const connected = S.cfg && S.cfg.panel_connected;
   app.innerHTML = `
@@ -181,6 +183,7 @@ function content() {
     case 'add': return addView();
     case 'cards': return cardsView();
     case 'renew': return renewView();
+    case 'gates': return gatesView();
   }
   return '';
 }
@@ -989,6 +992,174 @@ function wireRenew() {
   };
 }
 
+/* ================= gates ================= */
+function gateStatusChip(g) {
+  const d = S.gatesData || {};
+  if (g.id === d.active) {
+    return d.connected ? ['متصلة','#D8F3C9','#1D1D1F'] : ['جارٍ الاتصال…','#E8F4FD','#0071E3'];
+  }
+  return ['غير نشطة','#E8E8ED','#6E6E73'];
+}
+function scanResultsHTML() {
+  if (S.scanning) return `
+  <div style="border-radius:12px;background:#E8F4FD;padding:24px 18px;display:flex;flex-direction:column;align-items:center;gap:14px">
+    <div style="position:relative;width:66px;height:66px;display:grid;place-items:center">
+      <span style="position:absolute;inset:0;border-radius:50%;border:2px solid #0071E3;animation:ring 1.8s ease-out infinite"></span>
+      <span style="position:absolute;inset:0;border-radius:50%;border:2px solid #0071E3;animation:ring 1.8s ease-out .9s infinite"></span>
+      <span style="width:36px;height:25px;border-radius:4px;border:2px solid #0071E3"></span>
+    </div>
+    <span style="font-size:13px;font-weight:600">جارٍ فحص الشبكة المحلية عن أجهزة ZKAccess…</span>
+    <span style="font-size:11.5px;color:#6E6E73">منفذ TCP 4370 · قد يستغرق حتى 15 ثانية</span>
+  </div>`;
+  if (!S.scanResults) return `<div style="font-size:12px;color:#6E6E73;line-height:1.6">يفحص كل الأجهزة على الشبكة المحلية (منفذ 4370) ويتحقق منها ببروتوكول C3.</div>`;
+  if (!S.scanResults.length) return `<div style="border-radius:12px;background:#FFF5F5;padding:14px 16px;font-size:12.5px;color:#E85F46;font-weight:600">لم يُعثر على أجهزة — تأكد أن اللوحة على نفس الشبكة.</div>`;
+  return S.scanResults.map((d, i) => `
+  <div style="border:1px solid #EDEDED;border-radius:12px;padding:13px 14px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="width:26px;height:18px;border-radius:3px;flex:none;background:#1D1D1F"></span>
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+        <span style="font-size:13px;font-weight:600">${esc(d.ip)}</span>
+        <span style="font-size:11px;color:#6E6E73">${d.sn ? esc(d.model||'C3')+' · SN '+esc(d.sn) : (d.confirmed?'جهاز C3':'منفذ 4370 مفتوح')}${d.doors?' · '+d.doors+' أبواب':''}</span>
+      </div>
+      <span class="chip" style="margin-inline-start:auto;background:${d.confirmed?'#D8F3C9':'#E8E8ED'};color:${d.confirmed?'#1D1D1F':'#6E6E73'}">${d.confirmed?'مؤكد':'غير مؤكد'}</span>
+    </div>
+    ${(d.gate_ids && d.gate_ids.length) ? `<span style="font-size:11.5px;color:#518339;font-weight:600">مضاف (${d.gate_ids.length} بوابة)</span>` : ''}
+    ${S.addFromScan === i ? `
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <label class="field" style="flex:1"><span>اسم البوابة</span><input id="scName" style="height:34px" value="البوابة الرئيسية"></label>
+      <label class="field" style="width:84px"><span>الباب</span>
+        <select id="scDoor" style="all:unset;background:#F9F9F9;border:1px solid #EDEDED;border-radius:6px;height:34px;padding:0 10px;font-size:13px">
+          ${[1,2,3,4].map(n=>`<option value="${n}">${n}</option>`).join('')}
+        </select></label>
+      <button data-scconfirm="${i}" class="pillbtn blue" style="height:34px;padding:0 14px;font-size:12.5px">حفظ</button>
+    </div>` : `
+    <button data-scadd="${i}" class="pillbtn ${d.confirmed?'blue':'gray'}" style="height:32px;font-size:12.5px">إضافة كبوابة</button>`}
+  </div>`).join('');
+}
+function gatesView() {
+  const d = S.gatesData || {gates: [], plan_gates: {}, active: '', connected: false};
+  const cols = 'minmax(170px,1.6fr) minmax(160px,1.4fr) 70px minmax(110px,1fr) 210px';
+  const pg = d.plan_gates || {};
+  return `
+<div style="min-width:1040px;max-width:1320px;display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start">
+  <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+    <div class="card" style="overflow-x:auto">
+      <div class="thead" style="grid-template-columns:${cols};min-width:800px"><span>البوابة</span><span>العنوان</span><span>الباب</span><span>الحالة</span><span></span></div>
+      ${d.gates.length ? d.gates.map(g => { const [label,bg,tone] = gateStatusChip(g);
+        return `<div class="trow" style="grid-template-columns:${cols};min-width:800px;cursor:default">
+        <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+          <span style="font-size:13.5px;font-weight:600">${esc(g.name)}</span>
+          <span style="font-size:11px;color:#6E6E73">${g.sn?'SN '+esc(g.sn):esc(g.id)}</span>
+        </div>
+        <span style="font-size:13px;letter-spacing:.02em">${esc(g.addr)}</span>
+        <span style="font-size:13px;font-weight:600">${g.door}</span>
+        <span class="chip" style="justify-self:start;background:${bg};color:${tone}">${label}</span>
+        <div style="display:flex;gap:6px;justify-self:end">
+          ${g.id !== d.active ? `<button data-gconnect="${esc(g.id)}" class="pillbtn blue" style="height:30px;padding:0 12px;font-size:12px">اتصال</button>` : ''}
+          <button data-gopen="${esc(g.id)}" class="pillbtn gray" style="height:30px;padding:0 12px;font-size:12px">فتح</button>
+          <button data-gdel="${esc(g.id)}" class="pillbtn" style="height:30px;padding:0 12px;font-size:12px;background:#FFF5F5;color:#E85F46">حذف</button>
+        </div>
+      </div>`; }).join('') : '<div style="padding:34px 24px;font-size:13px;color:#6E6E73">لا بوابات بعد — ابحث عن الأجهزة على الشبكة أو أضف بوابة يدوياً.</div>'}
+    </div>
+
+    <div class="card" style="padding:24px;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <h3 style="margin:0;font-size:15.5px;font-weight:600">صلاحيات الخطط على البوابات</h3>
+        <span style="font-size:12px;color:#6E6E73">بدون تحديد = كل البوابات مسموحة لهذه الخطة</span>
+      </div>
+      ${d.gates.length ? `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${['gym','gym_classes','full'].map(plan => `
+        <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;border:1px solid #EDEDED;border-radius:12px;flex-wrap:wrap">
+          <span style="font-size:13px;font-weight:600;width:110px;flex:none">${AR.access[plan]}</span>
+          ${d.gates.map(g => { const on = (pg[plan]||[]).includes(g.id);
+            return `<label style="display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer">
+              <input type="checkbox" data-plan="${plan}" data-gate="${esc(g.id)}" ${on?'checked':''} style="accent-color:#0071E3;width:15px;height:15px">
+              ${esc(g.name)}
+            </label>`; }).join('')}
+        </div>`).join('')}
+      </div>
+      <button id="savePlans" class="pillbtn blue" style="align-self:flex-start;height:36px;padding:0 20px;font-size:13px">حفظ الصلاحيات</button>
+      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">عند مسح بطاقة على باب بوابةٍ لا تشملها خطة العضو، يُرفض الدخول برسالة «الخطة لا تشمل هذه البوابة».</p>
+      ` : '<div style="font-size:12.5px;color:#6E6E73">أضف بوابة أولاً لضبط صلاحيات الخطط.</div>'}
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:15.5px;font-weight:600">البحث عن أجهزة ZK</h3>
+        <span style="display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:${d.connected?'#518339':'#E85F46'}"><span style="width:7px;height:7px;border-radius:50%;background:${d.connected?'#518339':'#E85F46'}"></span>${d.connected?'اللوحة متصلة':'اللوحة غير متصلة'}</span>
+      </div>
+      <div id="scanBoxG" style="display:flex;flex-direction:column;gap:10px">${scanResultsHTML()}</div>
+      <button id="doNetScan" class="pillbtn blue" style="height:38px;font-size:13.5px" ${S.scanning?'disabled':''}>${S.scanResults?'إعادة الفحص':'فحص الشبكة'}</button>
+    </div>
+    <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:12px">
+      <h3 style="margin:0;font-size:15.5px;font-weight:600">إضافة يدوية</h3>
+      <label class="field"><span>اسم البوابة</span><input id="mgName" placeholder="البوابة الرئيسية"></label>
+      <div style="display:flex;gap:10px">
+        <label class="field" style="flex:1"><span>العنوان (IP:منفذ)</span><input id="mgAddr" placeholder="192.168.0.102:4370" style="direction:ltr;text-align:left"></label>
+        <label class="field" style="width:84px"><span>الباب</span>
+          <select id="mgDoor" style="all:unset;background:#F9F9F9;border:1px solid #EDEDED;border-radius:6px;height:40px;padding:0 10px;font-size:13px">
+            ${[1,2,3,4].map(n=>`<option value="${n}">${n}</option>`).join('')}
+          </select></label>
+      </div>
+      <button id="mgAdd" class="pillbtn gray" style="height:36px;font-size:13px">إضافة البوابة</button>
+      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">لوحة C3 واحدة تدير حتى 4 أبواب — أضف بوابة لكل باب على نفس العنوان.</p>
+    </div>
+  </div>
+</div>`;
+}
+function wireGates() {
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('doNetScan', async () => {
+    S.scanning = true; S.addFromScan = null; render();
+    try { const r = await api('/gym/gates/scan', {method:'POST', body:'{}'});
+      S.scanResults = r.devices || []; }
+    catch (e) { toast(e.message, true); S.scanResults = S.scanResults || []; }
+    S.scanning = false; render();
+  });
+  document.querySelectorAll('[data-scadd]').forEach(b => b.onclick = () => { S.addFromScan = +b.dataset.scadd; render(); });
+  document.querySelectorAll('[data-scconfirm]').forEach(b => b.onclick = async () => {
+    const dev = S.scanResults[+b.dataset.scconfirm];
+    try { await api('/gym/gates', {method:'POST', body: JSON.stringify({
+        name: $('scName').value, addr: dev.addr, door: +$('scDoor').value, sn: dev.sn||'', model: dev.model||''})});
+      toast('أُضيفت البوابة'); S.addFromScan = null;
+      S.gatesData = await api('/gym/gates');
+      const r = await api('/gym/gates/scan', {method:'POST', body:'{}'}).catch(()=>null);
+      if (r) S.scanResults = r.devices || S.scanResults;
+      render();
+    } catch (e) { toast(e.message, true); }
+  });
+  on('mgAdd', async () => {
+    const addr = $('mgAddr').value.trim();
+    if (!addr) { toast('أدخل عنوان الجهاز', true); return; }
+    try { await api('/gym/gates', {method:'POST', body: JSON.stringify({
+        name: $('mgName').value, addr, door: +$('mgDoor').value})});
+      toast('أُضيفت البوابة'); go('gates');
+    } catch (e) { toast(e.message, true); }
+  });
+  document.querySelectorAll('[data-gconnect]').forEach(b => b.onclick = async () => {
+    try { await api('/gym/gates/'+b.dataset.gconnect+'/connect', {method:'POST', body:'{}'});
+      toast('جارٍ الاتصال بالبوابة…'); setTimeout(() => go('gates'), 1200);
+    } catch (e) { toast(e.message, true); } });
+  document.querySelectorAll('[data-gopen]').forEach(b => b.onclick = async () => {
+    try { await api('/gym/gates/'+b.dataset.gopen+'/open', {method:'POST', body:'{}'});
+      toast('فُتحت البوابة'); } catch (e) { toast(e.message, true); } });
+  document.querySelectorAll('[data-gdel]').forEach(b => b.onclick = async () => {
+    try { await api('/gym/gates/'+b.dataset.gdel, {method:'DELETE'});
+      toast('حُذفت البوابة'); go('gates'); } catch (e) { toast(e.message, true); } });
+  on('savePlans', async () => {
+    const m = {};
+    document.querySelectorAll('input[data-plan]').forEach(cb => {
+      if (cb.checked) (m[cb.dataset.plan] = m[cb.dataset.plan] || []).push(cb.dataset.gate);
+    });
+    try { await api('/gym/gates/plans', {method:'PUT', body: JSON.stringify(m)});
+      toast('حُفظت صلاحيات الخطط'); S.gatesData = await api('/gym/gates'); render();
+    } catch (e) { toast(e.message, true); }
+  });
+}
+
 /* ================= wiring dispatch ================= */
 function wireScreen() {
   wireModals();
@@ -999,6 +1170,7 @@ function wireScreen() {
     case 'add': wireAdd(); break;
     case 'cards': wireCards(); break;
     case 'renew': wireRenew(); break;
+    case 'gates': wireGates(); break;
   }
 }
 

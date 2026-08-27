@@ -15,6 +15,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -48,8 +49,10 @@ type Server struct {
 
 	ready func() bool // reports panel-link readiness; nil => always ready
 
-	gym       *gym.Store
-	gymEngine *gym.Engine
+	gym        *gym.Store
+	gymEngine  *gym.Engine
+	gateSwitch func(addr string)                                // repoints the live panel connection
+	scan       func(context.Context, ...string) []gym.Device    // LAN device discovery (swappable in tests)
 
 	// metrics
 	reqTotal   atomic.Int64
@@ -73,7 +76,7 @@ func New(panel c3.Panel, opt Options) *Server {
 	if opt.Logger == nil {
 		opt.Logger = slog.Default()
 	}
-	return &Server{panel: panel, opt: opt, log: opt.Logger}
+	return &Server{panel: panel, opt: opt, log: opt.Logger, scan: gym.ScanNetwork}
 }
 
 func (s *Server) Routes() http.Handler {
