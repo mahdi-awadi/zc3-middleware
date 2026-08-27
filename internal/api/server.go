@@ -30,6 +30,7 @@ import (
 
 	"github.com/awadi/zk-c3-middleware/internal/access"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
+	"github.com/awadi/zk-c3-middleware/internal/gym"
 	"github.com/awadi/zk-c3-middleware/internal/store"
 )
 
@@ -56,6 +57,9 @@ type Server struct {
 
 	roles  *access.Store
 	engine *access.Engine
+
+	gym       *gym.Store
+	gymEngine *gym.Engine
 
 	// metrics
 	reqTotal   atomic.Int64
@@ -119,6 +123,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /access/config", s.handleAccessConfig)
 	mux.HandleFunc("PUT /access/config", s.handleAccessConfigSet)
 	mux.HandleFunc("GET /access/decisions", s.handleDecisions)
+
+	// Gym membership subsystem (members, subscriptions, cards, gate kiosk).
+	s.gymRoutes(mux)
 
 	// Embedded admin web UI (same-origin with the API).
 	mux.Handle("GET /ui/", http.StripPrefix("/ui/", uiHandler()))

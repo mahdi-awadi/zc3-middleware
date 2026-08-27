@@ -37,6 +37,9 @@ type Config struct {
 	// Access enforcement (roles engine).
 	AccessConfigPath string // JSON file with roles + policy; empty = in-memory defaults
 
+	// Gym membership subsystem.
+	GymDataPath string // JSON file with members/cards/checkins; empty = in-memory
+
 	// Security
 	APIKey       string   // bearer token; empty disables auth
 	CORSOrigins  []string // allowed origins; empty disables CORS
@@ -71,6 +74,7 @@ func Load() (Config, error) {
 		EventPollInterval:  getdur("EVENT_POLL_INTERVAL", time.Second),
 		EventReplayBacklog: getbool("EVENT_REPLAY_BACKLOG", false),
 		AccessConfigPath:   getenv("ACCESS_CONFIG_PATH", "access.json"),
+		GymDataPath:        getenv("GYM_DATA_PATH", "gym.json"),
 		APIKey:             getenv("API_KEY", ""),
 		CORSOrigins:        getlist("CORS_ORIGINS"),
 		TrustedProxy:       getbool("TRUSTED_PROXY", false),

@@ -17,6 +17,7 @@ import (
 	"github.com/awadi/zk-c3-middleware/internal/api"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/config"
+	"github.com/awadi/zk-c3-middleware/internal/gym"
 	"github.com/awadi/zk-c3-middleware/internal/store"
 	"github.com/awadi/zk-c3-middleware/internal/supervisor"
 )
@@ -85,11 +86,25 @@ func run() error {
 		log.Info("role enforcement enabled", "config", cfg.AccessConfigPath)
 	}
 
-	// Every panel event fans out to SSE subscribers, the audit log, and the
-	// enforcement engine.
+	// Gym membership layer: members + subscriptions bound to cards; the gym
+	// engine decides the gate on every swipe and feeds the kiosk screen.
+	gymStore, err := gym.Open(cfg.GymDataPath)
+	if err != nil {
+		return err
+	}
+	gymEngine := gym.NewEngine(gymStore, panel, cfg.DoorDefaultSeconds, cfg.IOTimeout, log)
+	go gymEngine.Run(ctx)
+	srv.SetGym(gymStore, gymEngine)
+	if gymStore.Config().Enabled {
+		log.Info("gym subsystem enabled", "data", cfg.GymDataPath)
+	}
+
+	// Every panel event fans out to SSE subscribers, the audit log, and both
+	// enforcement engines.
 	sink := func(ev c3.Event) {
 		srv.Fanout(ev)
 		engine.Handle(ev)
+		gymEngine.Handle(ev)
 	}
 	sup := supervisor.New(panel, sink, supervisor.Config{
 		ReconnectMin: cfg.ReconnectMin,

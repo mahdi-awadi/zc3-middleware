@@ -7,4 +7,6 @@
 events.jsonl
 *.jsonl
 access.json
+gym.json
+gym-*.json
 release/zc3-middleware-*

@@ -116,6 +116,15 @@ separate deploy. It manages every part of the API:
 Enroll/revoke require `ALLOW_WRITES=true`; the console shows a banner when writes
 are locked. Set an `API_KEY` and enter it under Settings to authenticate.
 
+## Gym mode (نادي المنارة)
+
+A complete gym membership system rides on the same gate: members with
+time-boxed subscriptions bound to cards, a per-swipe decision engine
+(granted / renewal warning / denied / unknown), attendance heatmaps, a card
+registry, payments with receipts, and an Arabic RTL console + fullscreen
+gate kiosk screen — all embedded, served at **`/ui/gym/`** and `/gym/*` API
+routes. See [docs/GYM.md](docs/GYM.md).
+
 ## Configuration
 
 Everything is an environment variable (optionally seeded from `.env`; real env
