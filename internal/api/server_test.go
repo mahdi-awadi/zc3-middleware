@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/awadi/zk-c3-middleware/internal/c3"
+	"github.com/awadi/zk-c3-middleware/internal/gym"
 )
 
 // fakePanel implements c3.Panel for handler tests.
@@ -21,24 +22,20 @@ type fakePanel struct {
 }
 
 func (f *fakePanel) Connect(context.Context) error { return nil }
-func (f *fakePanel) Close() error                   { return nil }
+func (f *fakePanel) Close() error                  { return nil }
 func (f *fakePanel) DeviceInfo(context.Context) (c3.DeviceInfo, error) {
 	return c3.DeviceInfo{SerialNumber: "ACP123", DeviceName: "C3-200", Doors: 2}, nil
 }
 func (f *fakePanel) GetParams(_ context.Context, keys ...string) (map[string]string, error) {
-	return map[string]string{"IPAddress": "192.168.0.102"}, nil
+	return map[string]string{}, nil
 }
 func (f *fakePanel) SetParams(context.Context, map[string]string) error { return nil }
 func (f *fakePanel) SyncTime(context.Context, time.Time) error          { return nil }
-func (f *fakePanel) ListUsers(context.Context) ([]c3.User, error) {
-	return []c3.User{{UID: 1, PIN: "1", CardNo: "999", Name: "T", Auth: []c3.AuthRule{{TimezoneID: 1, DoorMask: 3, Doors: []int{1, 2}}}}}, nil
-}
-func (f *fakePanel) ListCards(context.Context) ([]c3.Card, error) {
-	return []c3.Card{{PIN: "1", CardNo: "999", Doors: []int{1, 2}, Timezone: 1}}, nil
-}
-func (f *fakePanel) TableNames(context.Context) ([]string, error) { return []string{"user", "timezone"}, nil }
-func (f *fakePanel) GetTable(_ context.Context, n string) ([]map[string]string, error) {
-	return []map[string]string{{"TimezoneId": "1"}}, nil
+func (f *fakePanel) ListUsers(context.Context) ([]c3.User, error)      { return nil, nil }
+func (f *fakePanel) ListCards(context.Context) ([]c3.Card, error)      { return nil, nil }
+func (f *fakePanel) TableNames(context.Context) ([]string, error)      { return nil, nil }
+func (f *fakePanel) GetTable(context.Context, string) ([]map[string]string, error) {
+	return nil, nil
 }
 func (f *fakePanel) SetCard(_ context.Context, c c3.Card) error {
 	if f.writesOff {
@@ -62,7 +59,7 @@ func (f *fakePanel) SetAux(context.Context, int, bool, int) error { return nil }
 func (f *fakePanel) CancelAlarm(context.Context) error            { return nil }
 func (f *fakePanel) Restart(context.Context) error                { return nil }
 func (f *fakePanel) Status(context.Context) (c3.PanelStatus, error) {
-	return c3.PanelStatus{Sensor: "00", Relay: "00", Doors: []c3.DoorState{{Door: 1}}}, nil
+	return c3.PanelStatus{}, nil
 }
 func (f *fakePanel) Events(ctx context.Context) (<-chan c3.Event, error) {
 	ch := make(chan c3.Event)
@@ -70,12 +67,26 @@ func (f *fakePanel) Events(ctx context.Context) (<-chan c3.Event, error) {
 	return ch, nil
 }
 
-func newTestServer(p c3.Panel, apiKey string) http.Handler {
-	return New(p, Options{APIKey: apiKey, DoorDefaultSecs: 5}).Routes()
+// newTestServer wires a full server with an in-memory gym store + engine.
+func newTestServer(t *testing.T, p c3.Panel, apiKey string) http.Handler {
+	t.Helper()
+	s := New(p, Options{APIKey: apiKey, DoorDefaultSecs: 5})
+	st, err := gym.Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opener gym.DoorOpener
+	if fp, ok := p.(*fakePanel); ok {
+		opener = fp
+	} else {
+		opener = p
+	}
+	s.SetGym(st, gym.NewEngine(st, opener, 5, time.Second, nil))
+	return s.Routes()
 }
 
 func TestHealthz(t *testing.T) {
-	h := newTestServer(&fakePanel{}, "")
+	h := newTestServer(t, &fakePanel{}, "")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
 	if rec.Code != 200 {
@@ -83,18 +94,18 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-func TestDeviceEndpoint(t *testing.T) {
-	h := newTestServer(&fakePanel{}, "")
+func TestRootServesGymConsole(t *testing.T) {
+	h := newTestServer(t, &fakePanel{}, "")
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/device", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "ACP123") {
-		t.Fatalf("device: %d %s", rec.Code, rec.Body.String())
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "نادي المنارة") {
+		t.Fatalf("root: %d", rec.Code)
 	}
 }
 
 func TestOpenDoorDefaultSeconds(t *testing.T) {
 	f := &fakePanel{}
-	h := newTestServer(f, "")
+	h := newTestServer(t, f, "")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/doors/2/open", strings.NewReader("{}")))
 	if rec.Code != 200 {
@@ -105,32 +116,24 @@ func TestOpenDoorDefaultSeconds(t *testing.T) {
 	}
 }
 
-func TestOpenDoorExplicitSeconds(t *testing.T) {
-	f := &fakePanel{}
-	h := newTestServer(f, "")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("POST", "/doors/1/open", strings.NewReader(`{"seconds":9}`)))
-	if f.openedSecs != 9 {
-		t.Fatalf("secs=%d want 9", f.openedSecs)
-	}
-}
-
 func TestAuthRequired(t *testing.T) {
-	h := newTestServer(&fakePanel{}, "secret")
-	// no token -> 401
+	h := newTestServer(t, &fakePanel{}, "secret")
+	// gym data routes require the key
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/device", nil))
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/gym/summary", nil))
 	if rec.Code != 401 {
 		t.Fatalf("no-auth = %d want 401", rec.Code)
 	}
-	// healthz is exempt
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", nil))
-	if rec.Code != 200 {
-		t.Fatalf("healthz auth-exempt = %d", rec.Code)
+	// the console shell and probes are exempt
+	for _, p := range []string{"/", "/healthz", "/config", "/metrics"} {
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+		if rec.Code != 200 {
+			t.Fatalf("%s auth-exempt = %d", p, rec.Code)
+		}
 	}
 	// correct token -> 200
-	req := httptest.NewRequest("GET", "/device", nil)
+	req := httptest.NewRequest("GET", "/gym/summary", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -139,24 +142,63 @@ func TestAuthRequired(t *testing.T) {
 	}
 }
 
-func TestWritesGatedError(t *testing.T) {
-	h := newTestServer(&fakePanel{writesOff: true}, "")
+// TestGymFlow drives the member lifecycle through HTTP: create with card,
+// simulate a swipe (granted), then check the summary counted it.
+func TestGymFlow(t *testing.T) {
+	f := &fakePanel{}
+	h := newTestServer(t, f, "")
+
+	body := `{"name":"Test Member","card_no":"12345678","plan":{"months":3,"access":"gym_classes"}}`
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("POST", "/cards", strings.NewReader(`{"card_no":"5","doors":[1]}`)))
-	if rec.Code != 502 || !strings.Contains(rec.Body.String(), "writes disabled") {
-		t.Fatalf("gated write: %d %s", rec.Code, rec.Body.String())
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/gym/members", strings.NewReader(body)))
+	if rec.Code != 201 {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Member      gym.MemberView `json:"member"`
+		PanelSynced bool           `json:"panel_synced"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Member.Status != gym.StatusActive || !created.PanelSynced {
+		t.Fatalf("created = %+v", created)
+	}
+	// The card was mirrored to the panel engine-gated.
+	if f.setCard == nil || f.setCard.CardNo != "12345678" || !f.setCard.NoPanelAuth {
+		t.Fatalf("panel card = %+v", f.setCard)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/gym/simulate",
+		strings.NewReader(`{"card_no":"12345678","dry_run":true}`)))
+	var u gym.GateUpdate
+	if err := json.Unmarshal(rec.Body.Bytes(), &u); err != nil {
+		t.Fatal(err)
+	}
+	if u.Result != gym.ResultGranted || u.Visit != 1 {
+		t.Fatalf("simulate = %+v", u)
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/gym/summary", nil))
+	var sum gym.Summary
+	if err := json.Unmarshal(rec.Body.Bytes(), &sum); err != nil {
+		t.Fatal(err)
+	}
+	if sum.TodayEntries != 1 || sum.ActiveMembers != 1 {
+		t.Fatalf("summary = %+v", sum)
 	}
 }
 
-func TestListCards(t *testing.T) {
-	h := newTestServer(&fakePanel{}, "")
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/cards", nil))
-	var cards []c3.Card
-	if err := json.Unmarshal(rec.Body.Bytes(), &cards); err != nil {
-		t.Fatal(err)
-	}
-	if len(cards) != 1 || cards[0].CardNo != "999" {
-		t.Fatalf("cards = %v", cards)
+// TestRemovedSurface pins the redesign: legacy admin endpoints are gone.
+func TestRemovedSurface(t *testing.T) {
+	h := newTestServer(t, &fakePanel{}, "")
+	for _, p := range []string{"/device", "/users", "/cards", "/tables", "/roles", "/access/config", "/events", "/events/history", "/ui/", "/ui/gym/"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+		if rec.Code != 404 {
+			t.Fatalf("%s = %d, want 404", p, rec.Code)
+		}
 	}
 }

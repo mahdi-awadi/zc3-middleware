@@ -22,12 +22,12 @@ swipe at reader ──▶ gym engine ──▶ decision
 
 Cards linked to gym members are enrolled on the panel with `NoPanelAuth`,
 so the panel itself never opens the door for them — the middleware is the
-sole gate. The existing roles engine (school mode) ignores group-0 cards, so
-both subsystems coexist without double door-opens.
+sole gate.
 
 ## Console
 
-Open **`/ui/gym/`**. Screens: login, dashboard (stats, weekly chart, live
+Open **`http://<ip>:8000/`** — the console is the site root. Screens: login,
+dashboard (stats, weekly chart, live
 gate feed), members list with status filters, member profile (attendance
 heatmap, event log, subscription, electronic card), add member (card scan
 flow + plan builder), cards registry, renew & pay, and the fullscreen gate

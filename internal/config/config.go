@@ -34,9 +34,6 @@ type Config struct {
 	EventPollInterval  time.Duration // RTLog poll cadence
 	EventReplayBacklog bool          // emit buffered panel events on connect
 
-	// Access enforcement (roles engine).
-	AccessConfigPath string // JSON file with roles + policy; empty = in-memory defaults
-
 	// Gym membership subsystem.
 	GymDataPath string // JSON file with members/cards/checkins; empty = in-memory
 
@@ -49,8 +46,6 @@ type Config struct {
 	// Observability & audit
 	LogLevel      string // debug|info|warn|error
 	LogFormat     string // json|text
-	AuditLogPath  string // JSONL audit file; empty = memory-only
-	AuditRingSize int    // in-memory history buffer size
 }
 
 // Load reads .env (if present; path from ENV_FILE, default ".env"), then the
@@ -66,14 +61,13 @@ func Load() (Config, error) {
 		IOTimeout:          getdur("IO_TIMEOUT", 5*time.Second),
 		ReconnectMin:       getdur("RECONNECT_MIN", 1*time.Second),
 		ReconnectMax:       getdur("RECONNECT_MAX", 30*time.Second),
-		HTTPAddr:           getenv("HTTP_ADDR", ":8080"),
+		HTTPAddr:           getenv("HTTP_ADDR", ":8000"),
 		ReadHeaderTimeout:  getdur("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
 		ShutdownTimeout:    getdur("HTTP_SHUTDOWN_TIMEOUT", 10*time.Second),
 		DoorDefaultSeconds: getint("DOOR_DEFAULT_SECONDS", 5),
 		EventBufferSize:    getint("EVENT_BUFFER_SIZE", 64),
 		EventPollInterval:  getdur("EVENT_POLL_INTERVAL", time.Second),
 		EventReplayBacklog: getbool("EVENT_REPLAY_BACKLOG", false),
-		AccessConfigPath:   getenv("ACCESS_CONFIG_PATH", "access.json"),
 		GymDataPath:        getenv("GYM_DATA_PATH", "gym.json"),
 		APIKey:             getenv("API_KEY", ""),
 		CORSOrigins:        getlist("CORS_ORIGINS"),
@@ -81,8 +75,6 @@ func Load() (Config, error) {
 		AllowWrites:        getbool("ALLOW_WRITES", false),
 		LogLevel:           getenv("LOG_LEVEL", "info"),
 		LogFormat:          getenv("LOG_FORMAT", "json"),
-		AuditLogPath:       getenv("AUDIT_LOG_PATH", "events.jsonl"),
-		AuditRingSize:      getint("AUDIT_RING_SIZE", 10000),
 	}
 	return c, c.validate()
 }

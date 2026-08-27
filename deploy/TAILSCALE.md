@@ -62,12 +62,12 @@ sudo cp middleware /opt/zc3-middleware/
 sudo cp .env.example /opt/zc3-middleware/.env    # then edit:
 #   PANEL_ADDR=192.168.0.102:4370
 #   API_KEY=$(openssl rand -hex 32)
-#   HTTP_ADDR=:8080
+#   HTTP_ADDR=:8000
 sudo cp deploy/middleware.service /etc/systemd/system/
 sudo useradd -r -s /usr/sbin/nologin zc3 2>/dev/null || true
 sudo systemctl daemon-reload
 sudo systemctl enable --now middleware
-curl -H "Authorization: Bearer $API_KEY" localhost:8080/device
+curl -H "Authorization: Bearer $API_KEY" localhost:8000/healthz
 ```
 
 ## Notes
@@ -78,7 +78,7 @@ curl -H "Authorization: Bearer $API_KEY" localhost:8080/device
 - **Alternative (lower latency, recommended for production):** run the
   middleware *on the LAN box itself* and expose only its authenticated REST API
   to the VPS/frontend over the tailnet. Same Tailscale install; skip the subnet
-  route and point the frontend at `http://<lan-box-tailscale-ip>:8080`.
+  route and point the frontend at `http://<lan-box-tailscale-ip>:8000`.
 - **Firewall:** restrict the middleware's API to the tailnet (`tailscale serve`
   or bind `HTTP_ADDR` to the Tailscale interface) so it isn't exposed on the
   VPS's public interface.

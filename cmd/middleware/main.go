@@ -1,6 +1,8 @@
-// Command middleware is the ZKTeco C3 access-control middleware: a REST + SSE
-// HTTP service that fronts a C3 panel, streams realtime access events, and
-// manages cards and doors. All configuration comes from the environment / .env.
+// Command middleware is the gym access system: it fronts a ZKTeco C3 panel
+// and runs the whole membership layer — members with time-boxed subscriptions
+// bound to cards, a per-swipe gate decision engine, and the embedded Arabic
+// console + gate kiosk served at "/". All configuration comes from the
+// environment / .env.
 package main
 
 import (
@@ -13,12 +15,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/awadi/zk-c3-middleware/internal/access"
 	"github.com/awadi/zk-c3-middleware/internal/api"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/config"
 	"github.com/awadi/zk-c3-middleware/internal/gym"
-	"github.com/awadi/zk-c3-middleware/internal/store"
 	"github.com/awadi/zk-c3-middleware/internal/supervisor"
 )
 
@@ -40,7 +40,7 @@ func run() error {
 
 	log := newLogger(cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
-	log.Info("starting middleware", "version", version, "panel", cfg.PanelAddr, "http", cfg.HTTPAddr)
+	log.Info("starting gym system", "version", version, "panel", cfg.PanelAddr, "http", cfg.HTTPAddr)
 
 	// Root context cancelled on SIGINT/SIGTERM for graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -65,27 +65,6 @@ func run() error {
 		Logger:          log,
 	})
 
-	// Durable audit log of every access event.
-	audit, err := store.Open(cfg.AuditLogPath, cfg.AuditRingSize)
-	if err != nil {
-		return err
-	}
-	defer audit.Close()
-	srv.SetAudit(audit)
-
-	// Role enforcement engine: applies each role's time/direction/holiday rules
-	// to live events and opens the door when access is permitted.
-	roleStore, err := access.Open(cfg.AccessConfigPath)
-	if err != nil {
-		return err
-	}
-	engine := access.NewEngine(roleStore, panel, panel, cfg.IOTimeout, log)
-	go engine.Run(ctx)
-	srv.SetAccess(roleStore, engine)
-	if roleStore.Config().Enabled {
-		log.Info("role enforcement enabled", "config", cfg.AccessConfigPath)
-	}
-
 	// Gym membership layer: members + subscriptions bound to cards; the gym
 	// engine decides the gate on every swipe and feeds the kiosk screen.
 	gymStore, err := gym.Open(cfg.GymDataPath)
@@ -96,14 +75,12 @@ func run() error {
 	go gymEngine.Run(ctx)
 	srv.SetGym(gymStore, gymEngine)
 	if gymStore.Config().Enabled {
-		log.Info("gym subsystem enabled", "data", cfg.GymDataPath)
+		log.Info("gym gate enforcement enabled", "data", cfg.GymDataPath)
 	}
 
-	// Every panel event fans out to SSE subscribers, the audit log, and both
-	// enforcement engines.
+	// Every panel event feeds the gate engine (and the event counter).
 	sink := func(ev c3.Event) {
-		srv.Fanout(ev)
-		engine.Handle(ev)
+		srv.NoteEvent(ev)
 		gymEngine.Handle(ev)
 	}
 	sup := supervisor.New(panel, sink, supervisor.Config{
@@ -148,6 +125,7 @@ func run() error {
 	return nil
 }
 
+// newLogger builds the slog logger from LOG_LEVEL / LOG_FORMAT.
 func newLogger(level, format string) *slog.Logger {
 	var lv slog.Level
 	switch level {

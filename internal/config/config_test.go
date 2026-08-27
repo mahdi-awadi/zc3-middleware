@@ -32,7 +32,7 @@ func TestLoadDefaultsAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTPAddr != ":8080" {
+	if cfg.HTTPAddr != ":8000" {
 		t.Fatalf("default HTTP_ADDR=%q", cfg.HTTPAddr)
 	}
 	if cfg.IOTimeout != 5*time.Second {

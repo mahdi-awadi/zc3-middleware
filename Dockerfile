@@ -10,6 +10,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w -X main.version=${VERSION}
 # --- runtime (static, minimal) ---
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/middleware /middleware
-EXPOSE 8080
+EXPOSE 8000
 USER nonroot:nonroot
 ENTRYPOINT ["/middleware"]
