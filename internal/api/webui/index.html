@@ -38,11 +38,11 @@ button:focus-visible,input:focus-visible{outline:2px solid #0071E3;outline-offse
 'use strict';
 /* ================= state & helpers ================= */
 const S = {
-  screen: 'login', memberId: null, tab: 'all', evTab: 'الكل', gate: 'idle',
+  screen: 'login', memberId: null, tab: 'all', evTab: 'الكل',
   months: 3, access: 'gym_classes', pay: 'cash', discount: 0, priceEdited: 0,
   scan: null, pendingCard: '', unlink: false, freeze: false, edit: false,
   q: '', cfg: null, gymcfg: null, summary: null, members: [], member: null,
-  cards: [], feed: [], attendance: [], history: [], gateData: null, gateTimer: null,
+  cards: [], feed: [], attendance: [], history: [],
 };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -89,7 +89,7 @@ async function go(screen, id) {
   S.screen = screen; if (id) S.memberId = id;
   S.unlink = S.freeze = S.edit = false;
   try {
-    if (screen !== 'login' && screen !== 'gate' && !S.summary) await loadCommon();
+    if (screen !== 'login' && !S.summary) await loadCommon();
     if (screen === 'dash') { S.summary = await api('/gym/summary'); S.feed = await api('/gym/checkins?limit=6'); }
     if (screen === 'members') { S.members = await api('/gym/members'); }
     if (screen === 'profile') {
@@ -111,12 +111,10 @@ function render() {
   stopTimers();
   const app = $('app');
   if (S.screen === 'login') { app.innerHTML = loginView(); wireLogin(); return; }
-  if (S.screen === 'gate')  { app.innerHTML = gateView();  wireGate();  return; }
   const titles = {dash:'لوحة التحكم', members:'الأعضاء والاشتراكات', add:'إضافة عضو جديد', profile:'ملف العضو', cards:'إدارة البطاقات', renew:'تجديد ودفع'};
   const nav = [
     ['dash','لوحة التحكم',''], ['members','الأعضاء', S.summary ? fmtN(S.summary.total_members) : ''],
     ['add','عضو جديد',''], ['cards','البطاقات', S.summary ? fmtN(S.summary.cards_blank) : ''],
-    ['gate','شاشة البوابة',''],
   ];
   const connected = S.cfg && S.cfg.panel_connected;
   app.innerHTML = `
@@ -193,7 +191,7 @@ function wireCommon() {
   const s = $('search');
   s.onkeydown = (e) => { if (e.key === 'Enter') { S.q = s.value; go('members'); } };
 }
-function stopTimers() { if (S.gateTimer) { clearInterval(S.gateTimer); S.gateTimer = null; }
+function stopTimers() {
   if (S._scanTimer) { clearInterval(S._scanTimer); S._scanTimer = null; }
   if (S._sse) { S._sse.close(); S._sse = null; } }
 
@@ -227,7 +225,6 @@ function loginView() {
       <label class="field"><span>مفتاح الدخول (API Key)</span><input id="loginPass" type="password" style="height:44px" placeholder="اتركه فارغاً إذا لم يُضبط مفتاح"></label>
       <div id="loginErr" style="display:none;font-size:12.5px;color:#E85F46;font-weight:600"></div>
       <button id="loginBtn" class="pillbtn blue" style="height:44px;font-size:14px">دخول</button>
-      <button id="gateBtn" class="pillbtn gray" style="height:42px;font-size:13.5px">تشغيل شاشة البوابة</button>
     </div>
   </div>
 </div>`;
@@ -244,7 +241,6 @@ function wireLogin() {
   };
   $('loginBtn').onclick = attempt;
   $('loginPass').onkeydown = (e) => { if (e.key === 'Enter') attempt(); };
-  $('gateBtn').onclick = () => go('gate');
   loadCommon().then(() => { if (S.screen === 'login') render(); }).catch(()=>{});
 }
 
@@ -684,7 +680,7 @@ function addView() {
         <div style="width:52px;height:52px;border-radius:50%;border:1.5px solid #D2D2D7;display:grid;place-items:center"><div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #D2D2D7"></div></div>
         <div style="text-align:center;font-size:12px;line-height:1.6">معاينة الكاميرا<br><span style="color:#6E6E73;font-weight:600">غير مفعّلة في هذه النسخة</span></div>
       </div>
-      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">تُستخدم الصورة للتحقق البصري على شاشة البوابة عند كل دخول.</p>
+      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">تُستخدم الصورة للتحقق البصري في ملف العضو.</p>
     </div>
     <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:16px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -991,108 +987,6 @@ function wireRenew() {
 <script>window.print()<\/script></body></html>`);
     wnd.document.close();
   };
-}
-
-/* ================= gate kiosk ================= */
-function gateBody() {
-  const g = S.gateData;
-  const st = S.gate;
-  if (st === 'idle' || !g) return `
-  <div style="display:flex;flex-direction:column;align-items:center;gap:34px">
-    <div style="position:relative;width:190px;height:190px;display:grid;place-items:center">
-      <span style="position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.5);animation:ring 2.4s ease-out infinite"></span>
-      <span style="position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.5);animation:ring 2.4s ease-out 1.2s infinite"></span>
-      <span style="width:96px;height:66px;border-radius:8px;border:2.5px solid rgba(255,255,255,.85)"></span>
-    </div>
-    <div style="text-align:center;display:flex;flex-direction:column;gap:12px">
-      <span style="font-size:46px;font-weight:600;line-height:1.2">قرّب بطاقتك</span>
-      <span style="font-size:19px;color:rgba(255,255,255,.6)">من القارئ عند البوابة</span>
-    </div>
-  </div>`;
-  if (st === 'unknown') return `
-  <div style="display:flex;flex-direction:column;align-items:center;gap:30px;animation:fadeUp 300ms ease">
-    <div style="width:150px;height:150px;border-radius:50%;background:#FF3B30;display:grid;place-items:center">
-      <svg width="58" height="58" viewBox="0 0 12 12" fill="none" style="color:#fff"><path d="M9.375 2.625L2.625 9.375M9.375 9.375L2.625 2.625" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path></svg>
-    </div>
-    <div style="text-align:center;display:flex;flex-direction:column;gap:14px">
-      <span style="font-size:46px;font-weight:600">بطاقة غير معروفة</span>
-      <span style="font-size:19px;color:rgba(255,255,255,.6)">الرقم التسلسلي ${esc(serial4(g.card_no))} غير مسجّل في النظام</span>
-    </div>
-  </div>`;
-  const photo = `
-  <div style="width:250px;height:310px;flex:none;border-radius:20px;background:#272727;border:1px solid rgba(255,255,255,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:rgba(255,255,255,.45)">
-    <span style="font-size:52px;font-weight:600;color:rgba(255,255,255,.75)">${esc(g.initials||'—')}</span>
-    <span style="font-size:14px">صورة العضو</span>
-  </div>`;
-  if (st === 'granted') return `
-  <div style="display:flex;align-items:center;gap:52px;animation:fadeUp 300ms ease">${photo}
-    <div style="display:flex;flex-direction:column;gap:22px">
-      <span style="display:inline-flex;align-items:center;gap:12px;background:#D8F3C9;color:#1D1D1F;border-radius:40px;padding:8px 20px;font-size:19px;font-weight:600;align-self:flex-start">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22ZM12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12C4 16.4183 7.58172 20 12 20ZM11.0026 16L6.75999 11.7574L8.17421 10.3431L11.0026 13.1716L16.6595 7.51472L18.0737 8.92893L11.0026 16Z" fill="currentColor"></path></svg>
-        الدخول مسموح
-      </span>
-      <span style="font-size:56px;font-weight:600;line-height:1.15">${esc(g.name)}</span>
-      <div style="display:flex;gap:54px">
-        <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:15px;color:rgba(255,255,255,.55)">الخطة</span><span style="font-size:24px;font-weight:600">${AR.access[g.plan]||'—'}</span></div>
-        <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:15px;color:rgba(255,255,255,.55)">متبقٍ</span><span style="font-size:24px;font-weight:600">${g.days_left} يوماً</span></div>
-        <div style="display:flex;flex-direction:column;gap:6px"><span style="font-size:15px;color:rgba(255,255,255,.55)">الزيارة</span><span style="font-size:24px;font-weight:600">رقم ${fmtN(g.visit||'—')}</span></div>
-      </div>
-    </div>
-  </div>`;
-  if (st === 'warn') return `
-  <div style="display:flex;align-items:center;gap:52px;animation:fadeUp 300ms ease">${photo}
-    <div style="display:flex;flex-direction:column;gap:22px">
-      <span style="background:#E8F4FD;color:#0071E3;border-radius:40px;padding:8px 20px;font-size:19px;font-weight:600;align-self:flex-start">الدخول مسموح · تنبيه تجديد</span>
-      <span style="font-size:56px;font-weight:600;line-height:1.15">${esc(g.name)}</span>
-      <span style="font-size:24px;color:rgba(255,255,255,.75);line-height:1.5">ينتهي الاشتراك بعد ${g.days_left} ${g.days_left===1?'يوم':'أيام'} — راجع الاستقبال للتجديد.</span>
-    </div>
-  </div>`;
-  return `
-  <div style="display:flex;align-items:center;gap:52px;animation:fadeUp 300ms ease">${photo}
-    <div style="display:flex;flex-direction:column;gap:22px">
-      <span style="background:#FF3B30;color:#fff;border-radius:40px;padding:8px 20px;font-size:19px;font-weight:600;align-self:flex-start">الدخول مرفوض</span>
-      <span style="font-size:56px;font-weight:600;line-height:1.15">${esc(g.name||'—')}</span>
-      <span style="font-size:24px;color:rgba(255,255,255,.75);line-height:1.5">${esc(g.reason||'')}${g.expired_at?'<br>انتهى الاشتراك في '+esc(g.expired_at):''}<br>راجع الاستقبال للتجديد.</span>
-    </div>
-  </div>`;
-}
-function gateView() {
-  const now = new Date();
-  const days = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-  const months = ['كانون الثاني','شباط','آذار','نيسان','أيار','حزيران','تموز','آب','أيلول','تشرين الأول','تشرين الثاني','كانون الأول'];
-  return `
-<div style="min-height:100vh;background:#1D1D1F;color:#fff;display:flex;flex-direction:column">
-  <div style="height:74px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 44px;border-bottom:1px solid rgba(255,255,255,.1)">
-    <div style="display:flex;align-items:center;gap:12px">
-      <div style="width:32px;height:32px;border-radius:9px;background:#fff;color:#1D1D1F;display:grid;place-items:center;font-size:14px;font-weight:700">ن</div>
-      <span style="font-size:14.5px;font-weight:600">نادي المنارة · البوابة الرئيسية</span>
-    </div>
-    <div style="display:flex;align-items:center;gap:22px;font-size:14px;color:rgba(255,255,255,.6)">
-      <span>${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}</span>
-      <span id="clock" style="font-size:19px;font-weight:600;color:#fff">${hm(now.toISOString())}</span>
-    </div>
-  </div>
-  <div id="gateBody" style="flex:1;display:grid;place-items:center;padding:48px">${gateBody()}</div>
-  <div style="flex:none;padding:20px 44px 28px;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,.1)">
-    <span style="font-size:12px;color:rgba(255,255,255,.4);margin-inline-end:6px">جاهزة للمسح · تعود للانتظار تلقائياً</span>
-    <button id="backDash" class="pillbtn" style="margin-inline-start:auto;padding:0 16px;height:32px;font-size:12.5px;background:rgba(255,255,255,.12);color:#fff">رجوع إلى لوحة التحكم</button>
-  </div>
-</div>`;
-}
-function wireGate() {
-  $('backDash').onclick = () => go(key() || !S.cfg || !S.cfg.version ? 'dash' : 'dash');
-  S.gateTimer = setInterval(() => { const c = $('clock'); if (c) c.textContent = hm(new Date().toISOString()); }, 10000);
-  S._sse = new EventSource('/gym/gate' + (key() ? '?api_key='+encodeURIComponent(key()) : ''));
-  let idleT = null;
-  S._sse.addEventListener('gate', (e) => {
-    try { const u = JSON.parse(e.data);
-      S.gateData = u;
-      S.gate = u.result === 'granted' ? 'granted' : u.result === 'warn' ? 'warn' : u.result === 'unknown' ? 'unknown' : 'denied';
-      const b = $('gateBody'); if (b) b.innerHTML = gateBody();
-      if (idleT) clearTimeout(idleT);
-      idleT = setTimeout(() => { S.gate = 'idle'; S.gateData = null; const b2 = $('gateBody'); if (b2) b2.innerHTML = gateBody(); }, 8000);
-    } catch {}
-  });
 }
 
 /* ================= wiring dispatch ================= */

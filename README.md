@@ -7,9 +7,8 @@ A complete **gym membership + gate access system** built on **ZKTeco
 C3-series** access-control panels. It fronts a C3 panel (TCP `4370`, the PULL
 protocol) and runs the whole membership layer on top: members with time-boxed
 subscriptions bound to cards, a per-swipe gate decision engine, attendance
-history, payments, and an embedded Arabic console + gate kiosk screen — all in
-a single static Go binary, `.env`-driven, zero hardcoded config, serving
-**`http://<ip>:8000/`**.
+history, payments, and an embedded Arabic console — all in a single static Go
+binary, `.env`-driven, zero hardcoded config, serving **`http://<ip>:8000/`**.
 
 Validated against real hardware: **C3-200**, firmware `AC Ver 5.4.3.2001`.
 
@@ -33,13 +32,13 @@ your app, and it keeps the raw protocol off the public network.
                          │                                                                     │
   ┌──────────┐  TCP 4370 │  ┌───────────┐   ┌────────────┐   ┌──────────┐   ┌───────────────┐  │  HTTP :8000
   │ C3 panel │◀─────────▶│  │ supervisor│──▶│ c3 protocol│──▶│gym engine│   │  gym console  │◀─┼───────▶ reception /
-  │  (doors, │  binary   │  │ (1 conn,  │   │ (frame/CRC │   │ (member? │   │  + /gym API   │  │         gate kiosk
-  │  readers)│  PULL     │  │  reconnect)│  │  cards,    │   │  active? │   │  + /metrics   │  │         curl
+  │  (doors, │  binary   │  │ (1 conn,  │   │ (frame/CRC │   │ (member? │   │  + /gym API   │  │         curl
+  │  readers)│  PULL     │  │  reconnect)│  │  cards,    │   │  active? │   │  + /metrics   │  │
   └──────────┘           │  └───────────┘   │  events)   │   │  opens)  │   └───────────────┘  │
                          │        │         └────────────┘   └──────────┘          ▲           │
                          │        │  swipe events     │           │  check-ins     │ SSE       │
                          │        └───────────────────┴───────────┴────────────────┘           │
-                         │            (decision → door relay • gym.json • gate kiosk)          │
+                         │            (decision → door relay • gym.json • live feed)           │
                          └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -67,12 +66,12 @@ subscriptions live in `gym.json`. Member cards are enrolled on the panel
 and the middleware is the sole gate. On each swipe the engine resolves
 card → member → subscription and decides:
 - **active** → open the door, count the visit;
-- **expiring** (≤ `warn_days` left) → open + renewal warning on the kiosk;
-- **expired / frozen / suspended card** → deny, with the reason on the kiosk;
+- **expiring** (≤ `warn_days` left) → open + renewal warning;
+- **expired / frozen / suspended card** → deny, with the reason logged;
 - **unknown card** → deny.
 
 Every outcome is recorded as a check-in (attendance, live feed, stats) and
-broadcast over SSE to the gate kiosk screen.
+broadcast over SSE to the dashboard's live gate feed.
 
 **5 — Everything is one binary.** The HTTP layer exposes the `/gym` REST + SSE
 API, Prometheus `/metrics`, health/readiness probes, and the **gym console**,
@@ -100,8 +99,7 @@ The product is a complete gym membership system riding on the gate: members
 with time-boxed subscriptions bound to cards, a per-swipe decision engine
 (granted / renewal warning / denied / unknown), attendance heatmaps, a card
 registry, payments with receipts. The Arabic RTL console is **embedded in
-the binary** and served at the site root — **http://\<ip\>:8000/** — with a
-fullscreen gate kiosk screen for the entrance display. See
+the binary** and served at the site root — **http://\<ip\>:8000/**. See
 [docs/GYM.md](docs/GYM.md).
 
 Staff login maps onto `API_KEY`: the password field is the key. With no key
@@ -146,7 +144,7 @@ in [`docs/api.html`](docs/api.html) (open locally, or import the spec into
 | `GET/POST` | `/gym/cards` … | Card registry (blank / suspended / lost) |
 | `GET` | `/gym/summary` | Dashboard stats |
 | `GET` | `/gym/checkins` | Recent gate feed |
-| `GET` | `/gym/gate` | Gate decisions stream (SSE, kiosk screen) |
+| `GET` | `/gym/gate` | Gate decisions stream (SSE, live feed) |
 | `POST` | `/gym/simulate` | Inject a swipe (demo / no hardware) |
 
 The full gym API is documented in [docs/GYM.md](docs/GYM.md).
@@ -210,6 +208,6 @@ key-value RTLog (`0x79`), de-duplicated by the panel's record index.
       live hardware via a dummy round-trip; gated behind `ALLOW_WRITES`
 - [x] **Gym membership system** — members, subscriptions, renew/freeze,
       payments + receipts, card registry, attendance heatmaps, per-swipe gate
-      decisions, embedded Arabic console + gate kiosk (SSE)
+      decisions, embedded Arabic console with a live gate feed (SSE)
 - [ ] Member photo capture/storage, multi-panel supervisor, OIDC for staff
 

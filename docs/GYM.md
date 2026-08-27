@@ -2,8 +2,7 @@
 
 A gym membership layer on top of the C3 gate middleware: members with
 time-boxed subscriptions bound to access cards, a per-swipe decision engine,
-attendance history, a card registry, and a full Arabic RTL console + gate
-kiosk screen.
+attendance history, a card registry, and a full Arabic RTL console.
 
 ## The idea
 
@@ -17,7 +16,7 @@ swipe at reader ──▶ gym engine ──▶ decision
                                     ├─ denied   → keep closed (expired / frozen / card blocked)
                                     └─ unknown  → keep closed (card not registered)
                         │
-                        └──▶ SSE /gym/gate ──▶ gate kiosk screen + live dashboard feed
+                        └──▶ SSE /gym/gate ──▶ live dashboard feed
 ```
 
 Cards linked to gym members are enrolled on the panel with `NoPanelAuth`,
@@ -30,8 +29,7 @@ Open **`http://<ip>:8000/`** — the console is the site root. Screens: login,
 dashboard (stats, weekly chart, live
 gate feed), members list with status filters, member profile (attendance
 heatmap, event log, subscription, electronic card), add member (card scan
-flow + plan builder), cards registry, renew & pay, and the fullscreen gate
-kiosk (`تشغيل شاشة البوابة` from the login screen).
+flow + plan builder), cards registry, and renew & pay.
 
 Staff login maps onto the middleware's `API_KEY`: the password field *is*
 the API key (stored in the browser). With no `API_KEY` configured, login is
@@ -74,7 +72,7 @@ POST /gym/cards                        {serial} — register a blank card
 PUT  /gym/cards/{serial}               {status} — suspend / mark lost / restore
 
 GET  /gym/checkins?limit=20            recent gate feed
-GET  /gym/gate                         SSE stream of gate decisions (kiosk screen)
+GET  /gym/gate                         SSE stream of gate decisions (live feed)
 GET  /gym/scan                         last swipe seen (card-link flow); DELETE clears it
 POST /gym/simulate                     {card_no, dry_run?} — inject a swipe (demo / no hardware)
 ```
