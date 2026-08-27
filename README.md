@@ -210,5 +210,6 @@ key-value RTLog (`0x79`), de-duplicated by the panel's record index.
 - [x] **Gym membership system** — members, subscriptions, renew/freeze,
       payments + receipts, card registry, attendance heatmaps, per-swipe gate
       decisions, embedded Arabic console with a live gate feed (SSE)
-- [ ] Member photo capture/storage, multi-panel supervisor, OIDC for staff
+- [x] Member photos — camera capture / upload in the console, stored as files
+- [ ] Multi-panel supervisor, OIDC for staff
 

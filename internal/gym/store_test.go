@@ -288,3 +288,40 @@ func TestGatesAndPlanAccess(t *testing.T) {
 	}
 	_ = g2
 }
+
+func TestPhotoRoundTrip(t *testing.T) {
+	path := t.TempDir() + "/gym.json"
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := s.AddMember(Member{Name: "صاحب صورة"}, NewSubInput{Months: 1, Access: AccessGym}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Member(v.ID, now); got.HasPhoto {
+		t.Fatal("no photo yet")
+	}
+	img := []byte{0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3} // jpeg magic
+	if err := s.SavePhoto(v.ID, img); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Member(v.ID, now)
+	if !got.HasPhoto {
+		t.Fatal("has_photo should be true")
+	}
+	raw, err := s.Photo(v.ID)
+	if err != nil || len(raw) != len(img) {
+		t.Fatalf("photo read: %v %d", err, len(raw))
+	}
+	if err := s.SavePhoto("MGR-9999", img); err == nil {
+		t.Fatal("unknown member must fail")
+	}
+	// Deleting the member removes the photo file.
+	if err := s.DeleteMember(v.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Photo(v.ID); err == nil {
+		t.Fatal("photo should be gone with the member")
+	}
+}

@@ -168,6 +168,7 @@ type MemberView struct {
 	Plan     string `json:"plan"`     // current access key ("" if none)
 	PlanMeta string `json:"plan_meta"`// months + price of current sub
 	Expiry   string `json:"expiry"`   // dd/mm/yyyy
+	HasPhoto bool   `json:"has_photo"`
 }
 
 // AccessLabel maps an access key to its Arabic label (used in logs/receipts).

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -30,10 +31,12 @@ type data struct {
 }
 
 // Store holds all gym state with safe concurrent access + JSON persistence.
+// Member photos live as files in a sibling "gym-photos" directory.
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	d    data
+	mu       sync.RWMutex
+	path     string
+	photoDir string
+	d        data
 }
 
 // Open loads the store from path, seeding defaults if absent. Empty path keeps
@@ -44,6 +47,7 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return s, nil
 	}
+	s.photoDir = filepath.Join(filepath.Dir(path), "gym-photos")
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,6 +162,9 @@ func fmtDate(t time.Time) string {
 func (s *Store) view(m *Member, t time.Time) MemberView {
 	v := MemberView{Member: *m}
 	v.Status, v.DaysLeft = s.statusAt(m, t)
+	if _, ok := s.photoPath(m.ID); ok {
+		v.HasPhoto = true
+	}
 	if sub := currentSub(m); sub != nil {
 		v.Plan = sub.Access
 		months := "شهر"
@@ -350,9 +357,70 @@ func (s *Store) DeleteMember(id string) error {
 			}
 		}
 		s.d.Members = append(s.d.Members[:i], s.d.Members[i+1:]...)
+		if p, ok := s.photoPath(id); ok {
+			_ = os.Remove(p)
+		}
 		return s.save()
 	}
 	return ErrNotFound
+}
+
+// ---- member photos (files beside the data file) ----
+
+const maxPhotoBytes = 3 << 20 // 3 MB
+
+// photoPath returns the on-disk photo for a member and whether it exists.
+func (s *Store) photoPath(id string) (string, bool) {
+	if s.photoDir == "" {
+		return "", false
+	}
+	p := filepath.Join(s.photoDir, id+".img")
+	if _, err := os.Stat(p); err != nil {
+		return p, false
+	}
+	return p, true
+}
+
+// SavePhoto stores a member's photo (raw image bytes).
+func (s *Store) SavePhoto(id string, data []byte) error {
+	if s.photoDir == "" {
+		return errors.New("gym: photo storage unavailable (in-memory store)")
+	}
+	if len(data) == 0 || len(data) > maxPhotoBytes {
+		return fmt.Errorf("gym: photo must be 1 byte .. %d MB", maxPhotoBytes>>20)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.find(id) == nil {
+		return ErrNotFound
+	}
+	if err := os.MkdirAll(s.photoDir, 0o755); err != nil {
+		return err
+	}
+	p, _ := s.photoPath(id)
+	return os.WriteFile(p, data, 0o644)
+}
+
+// Photo returns the raw photo bytes for a member.
+func (s *Store) Photo(id string) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.photoPath(id)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return os.ReadFile(p)
+}
+
+// DeletePhoto removes a member's photo.
+func (s *Store) DeletePhoto(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.photoPath(id)
+	if !ok {
+		return ErrNotFound
+	}
+	return os.Remove(p)
 }
 
 // Members lists member views, optionally filtered by derived status ("nocard"

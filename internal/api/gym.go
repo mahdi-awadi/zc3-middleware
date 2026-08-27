@@ -8,9 +8,11 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/awadi/zk-c3-middleware/internal/c3"
@@ -42,6 +44,9 @@ func (s *Server) gymRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /gym/members/{id}/card", s.gymGuard(s.handleGymUnlinkCard))
 	mux.HandleFunc("GET /gym/members/{id}/attendance", s.gymGuard(s.handleGymAttendance))
 	mux.HandleFunc("GET /gym/members/{id}/checkins", s.gymGuard(s.handleGymMemberCheckins))
+	mux.HandleFunc("GET /gym/members/{id}/photo", s.gymGuard(s.handleGymPhotoGet))
+	mux.HandleFunc("PUT /gym/members/{id}/photo", s.gymGuard(s.handleGymPhotoSet))
+	mux.HandleFunc("DELETE /gym/members/{id}/photo", s.gymGuard(s.handleGymPhotoDelete))
 
 	mux.HandleFunc("GET /gym/cards", s.gymGuard(s.handleGymCards))
 	mux.HandleFunc("POST /gym/cards", s.gymGuard(s.handleGymCardRegister))
@@ -256,6 +261,56 @@ func (s *Server) handleGymUnlinkCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"member": v, "panel_synced": s.panelRevoke(r, serial)})
+}
+
+// ---- member photos ----
+
+// handleGymPhotoSet stores a member photo. Body: {"data":"data:image/jpeg;base64,..."}
+// (a bare base64 string is also accepted).
+func (s *Server) handleGymPhotoSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Data string `json:"data"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	b64 := body.Data
+	if i := strings.Index(b64, ";base64,"); i >= 0 {
+		b64 = b64[i+len(";base64,"):]
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid base64 image data"})
+		return
+	}
+	if ct := http.DetectContentType(raw); !strings.HasPrefix(ct, "image/") {
+		writeJSON(w, 400, map[string]string{"error": "not an image: " + ct})
+		return
+	}
+	if err := s.gym.SavePhoto(r.PathValue("id"), raw); err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleGymPhotoGet(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.gym.Photo(r.PathValue("id"))
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(raw))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(raw)
+}
+
+func (s *Server) handleGymPhotoDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.gym.DeletePhoto(r.PathValue("id")); err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 // ---- cards registry ----

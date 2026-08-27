@@ -83,6 +83,8 @@ POST /gym/members/{id}/card            {card_no} — link (+ panel enroll, NoPan
 DELETE /gym/members/{id}/card          unlink (+ panel revoke)
 GET  /gym/members/{id}/attendance?weeks=16
 GET  /gym/members/{id}/checkins?limit=50
+GET/PUT/DELETE /gym/members/{id}/photo   member photo (PUT body: {"data":"data:image/jpeg;base64,..."};
+                                         stored as files in gym-photos/ beside the data file)
 
 GET  /gym/cards                        registry (linked | blank | suspended | lost)
 POST /gym/cards                        {serial} — register a blank card

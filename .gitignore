@@ -9,4 +9,5 @@ events.jsonl
 access.json
 gym.json
 gym-*.json
+gym-photos/
 release/zc3-middleware-*

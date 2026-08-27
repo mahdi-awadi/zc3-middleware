@@ -7,7 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box}
+*{box-sizing:border-box;scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{display:none;width:0;height:0}
 body{margin:0;background:#F5F5F7;font-family:"IBM Plex Sans Arabic",sans-serif;color:#1D1D1F;-webkit-font-smoothing:antialiased}
 a{color:#0071E3;text-decoration:none}a:hover{opacity:.7}
 input,select,textarea,button{font-family:inherit}
@@ -64,6 +65,24 @@ const dmy = (iso) => { if (!iso) return '—'; const d = new Date(iso); if (isNa
 const hm = (iso) => { const d = new Date(iso); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
 const when = (iso) => { const d = new Date(iso), t = new Date(); const same = (a,b)=>a.toDateString()===b.toDateString(); const y = new Date(t); y.setDate(t.getDate()-1); if (same(d,t)) return 'اليوم '+hm(iso); if (same(d,y)) return 'أمس '+hm(iso); return dmy(iso); };
 const serial4 = (s) => { s = String(s||''); return s.length>4 ? s.replace(/(\d{4})(?=\d)/g,'$1 · ') : s; };
+const photoURL = (id) => '/gym/members/'+encodeURIComponent(id)+'/photo'+(key()?'?api_key='+encodeURIComponent(key())+'&':'?')+'t='+Date.now();
+const scaleToJpeg = (dataURL, maxW) => new Promise((res, rej) => {
+  const img = new Image();
+  img.onerror = () => rej(new Error('ملف صورة غير صالح'));
+  img.onload = () => { const sc = Math.min(1, maxW / img.width);
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width*sc)); c.height = Math.max(1, Math.round(img.height*sc));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    res(c.toDataURL('image/jpeg', 0.85)); };
+  img.src = dataURL;
+});
+const fileToJpeg = (file, maxW) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onerror = () => rej(new Error('تعذر قراءة الملف'));
+  r.onload = () => scaleToJpeg(r.result, maxW).then(res, rej);
+  r.readAsDataURL(file);
+});
+const stopStream = () => { if (S._stream) { S._stream.getTracks().forEach(t => t.stop()); S._stream = null; } };
 
 async function api(path, opts={}) {
   opts.headers = Object.assign({}, opts.headers);
@@ -87,7 +106,7 @@ async function loadCommon() {
 }
 async function go(screen, id) {
   S.screen = screen; if (id) S.memberId = id;
-  S.unlink = S.freeze = S.edit = false;
+  S.unlink = S.freeze = S.edit = S.linkCard = false;
   try {
     if (screen !== 'login' && !S.summary) await loadCommon();
     if (screen === 'dash') { S.summary = await api('/gym/summary'); S.feed = await api('/gym/checkins?limit=6'); }
@@ -97,11 +116,10 @@ async function go(screen, id) {
       S.attendance = await api('/gym/members/' + S.memberId + '/attendance?weeks=16');
       S.history = await api('/gym/members/' + S.memberId + '/checkins?limit=40');
     }
-    if (screen === 'cards') { S.cards = await api('/gym/cards'); S.members = await api('/gym/members'); }
     if (screen === 'renew') { S.member = await api('/gym/members/' + S.memberId); S.gymcfg = await api('/gym/config');
       const sub = S.member.subs && S.member.subs[S.member.subs.length-1];
       if (sub) { S.access = sub.access; S.months = sub.months; } S.discount = 0; S.priceEdited = 0; S.pay = 'cash'; }
-    if (screen === 'add') { S.pendingCard = ''; S.scan = null; S.months = 3; S.access = 'gym_classes'; S.priceEdited = 0; await api('/gym/scan', {method:'DELETE'}).catch(()=>{}); }
+    if (screen === 'add') { S.pendingCard = ''; S.scan = null; S.photoData = null; S.months = 3; S.access = 'gym_classes'; S.priceEdited = 0; await api('/gym/scan', {method:'DELETE'}).catch(()=>{}); }
     if (screen === 'gates') { S.gatesData = await api('/gym/gates'); S.cfg = await fetch('/config').then(r=>r.json()).catch(()=>S.cfg); }
   } catch (e) { if (e.message !== 'unauthorized') toast(e.message, true); }
   render();
@@ -112,10 +130,9 @@ function render() {
   stopTimers();
   const app = $('app');
   if (S.screen === 'login') { app.innerHTML = loginView(); wireLogin(); return; }
-  const titles = {dash:'لوحة التحكم', members:'الأعضاء والاشتراكات', add:'إضافة عضو جديد', profile:'ملف العضو', cards:'إدارة البطاقات', renew:'تجديد ودفع', gates:'البوابات'};
+  const titles = {dash:'لوحة التحكم', members:'الأعضاء والاشتراكات', add:'إضافة عضو جديد', profile:'ملف العضو', renew:'تجديد ودفع', gates:'البوابات'};
   const nav = [
     ['dash','لوحة التحكم',''], ['members','الأعضاء', S.summary ? fmtN(S.summary.total_members) : ''],
-    ['add','عضو جديد',''], ['cards','البطاقات', S.summary ? fmtN(S.summary.cards_blank) : ''],
     ['gates','البوابات', S.gatesData ? String(S.gatesData.gates.length || '') : ''],
   ];
   const connected = S.cfg && S.cfg.panel_connected;
@@ -171,7 +188,7 @@ function render() {
     <div style="flex:1;min-width:0;overflow-x:auto;padding:28px 32px 48px">${content()}</div>
   </main>
 </div>
-${S.unlink ? unlinkModal() : ''}${S.freeze ? freezeModal() : ''}${S.edit ? editModal() : ''}`;
+${S.unlink ? unlinkModal() : ''}${S.freeze ? freezeModal() : ''}${S.edit ? editModal() : ''}${S.linkCard ? linkCardModal() : ''}`;
   wireCommon(); wireScreen();
 }
 
@@ -181,7 +198,6 @@ function content() {
     case 'members': return membersView();
     case 'profile': return profileView();
     case 'add': return addView();
-    case 'cards': return cardsView();
     case 'renew': return renewView();
     case 'gates': return gatesView();
   }
@@ -195,6 +211,7 @@ function wireCommon() {
   s.onkeydown = (e) => { if (e.key === 'Enter') { S.q = s.value; go('members'); } };
 }
 function stopTimers() {
+  stopStream();
   if (S._scanTimer) { clearInterval(S._scanTimer); S._scanTimer = null; }
   if (S._sse) { S._sse.close(); S._sse = null; } }
 
@@ -453,9 +470,15 @@ function profileView() {
 <div style="min-width:1040px;max-width:1320px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start">
   <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
     <div class="card" style="padding:24px;display:flex;gap:22px;align-items:flex-start">
-      <div style="width:104px;height:126px;flex:none;border-radius:12px;background:#E8E8ED;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#6E6E73">
-        <span style="font-size:24px;font-weight:600">${esc(initials(m.name))}</span>
-        <span style="font-size:10.5px">صورة العضو</span>
+      <div style="display:flex;flex-direction:column;gap:8px;flex:none">
+        ${m.has_photo
+          ? `<img src="${photoURL(m.id)}" alt="" style="width:104px;height:126px;border-radius:12px;object-fit:cover;background:#E8E8ED">`
+          : `<div style="width:104px;height:126px;border-radius:12px;background:#E8E8ED;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#6E6E73">
+              <span style="font-size:24px;font-weight:600">${esc(initials(m.name))}</span>
+              <span style="font-size:10.5px">صورة العضو</span>
+            </div>`}
+        <button id="photoChange" style="font-size:11.5px;color:#0071E3;font-weight:600;text-align:center">${m.has_photo?'تغيير الصورة':'إضافة صورة'}</button>
+        <input id="photoFile" type="file" accept="image/*" style="display:none">
       </div>
       <div style="display:flex;flex-direction:column;gap:14px;flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -549,8 +572,21 @@ function wireProfile() {
       catch (e) { toast(e.message, true); }
     } else { S.freeze = true; render(); }
   });
-  on('goCards2', () => go('cards'));
-  on('goLink', () => go('cards'));
+  const openLink = () => { S.linkCard = true; S.scan = null; api('/gym/scan', {method:'DELETE'}).catch(()=>{}); render(); };
+  on('goCards2', openLink);
+  on('goLink', openLink);
+  on('photoChange', () => { const f = $('photoFile'); if (f) f.click(); });
+  const pf = $('photoFile');
+  if (pf) pf.onchange = async () => {
+    const file = pf.files && pf.files[0];
+    if (!file) return;
+    try {
+      const data = await fileToJpeg(file, 800);
+      await api('/gym/members/'+S.memberId+'/photo', {method:'PUT', body: JSON.stringify({data})});
+      S.member = await api('/gym/members/'+S.memberId);
+      toast('حُدِّثت الصورة'); render();
+    } catch (e) { toast(e.message, true); }
+  };
   on('askUnlink', () => { S.unlink = true; render(); });
 }
 function unlinkModal() {
@@ -610,8 +646,58 @@ function editModal() {
   </div>
 </div>`;
 }
+function linkCardModal() {
+  const m = S.member; if (!m) return '';
+  const sc = S.scan;
+  return `
+<div class="modal-bg">
+  <div class="modal">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">
+      <h3 style="margin:0;font-size:17px;font-weight:600;line-height:1.3">ربط بطاقة بـ ${esc(m.name)}</h3>
+      <button id="closeLink" style="width:28px;height:28px;flex:none;border-radius:4px;background:#F5F5F7;display:grid;place-items:center;color:#1D1D1F">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M9.375 2.625L2.625 9.375M9.375 9.375L2.625 2.625" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>
+      </button>
+    </div>
+    <div style="border-radius:12px;background:#E8F4FD;padding:18px 16px;display:flex;align-items:center;gap:14px">
+      <div style="position:relative;width:44px;height:44px;flex:none;display:grid;place-items:center">
+        <span style="position:absolute;inset:0;border-radius:50%;border:2px solid #0071E3;animation:ring 1.8s ease-out infinite"></span>
+        <span style="width:26px;height:18px;border-radius:3px;border:2px solid #0071E3"></span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <span id="lcScanState" style="font-size:13px;font-weight:600">${sc ? 'بطاقة مكتشفة: '+esc(serial4(sc.card_no)) : 'قرّب البطاقة من القارئ…'}</span>
+        <span style="font-size:11.5px;color:#6E6E73">أو أدخل الرقم يدوياً</span>
+      </div>
+    </div>
+    <label class="field"><span>رقم البطاقة</span><input id="lcSerial" value="${sc ? esc(sc.card_no) : ''}" placeholder="رقم البطاقة" style="direction:ltr;text-align:left"></label>
+    <div style="display:flex;gap:10px">
+      <button id="cancelLink" class="pillbtn gray" style="flex:1;height:38px;font-size:13.5px">إلغاء</button>
+      <button id="doLinkCard" class="pillbtn blue" style="flex:1;height:38px;font-size:13.5px">${m.card_no ? 'استبدال البطاقة' : 'ربط البطاقة'}</button>
+    </div>
+  </div>
+</div>`;
+}
 function wireModals() {
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('closeLink', () => { S.linkCard = false; render(); });
+  on('cancelLink', () => { S.linkCard = false; render(); });
+  on('doLinkCard', async () => {
+    const serial = ($('lcSerial').value || '').trim() || (S.scan && S.scan.card_no) || '';
+    if (!serial) { toast('امسح البطاقة أو أدخل رقمها', true); return; }
+    try { const r = await api('/gym/members/'+S.memberId+'/card', {method:'POST', body: JSON.stringify({card_no: serial})});
+      S.member = r.member; S.linkCard = false;
+      toast(r.panel_synced ? 'رُبطت البطاقة وفُعّلت' : 'رُبطت البطاقة (البوابة غير متصلة)'); render();
+    } catch (e) { toast(e.message, true); }
+  });
+  if (S.linkCard && !S._scanTimer) {
+    S._scanTimer = setInterval(async () => {
+      try { const r = await api('/gym/scan');
+        if (!r.waiting && r.scan) { S.scan = r.scan;
+          const st = $('lcScanState'), inp = $('lcSerial');
+          if (st) st.textContent = 'بطاقة مكتشفة: ' + serial4(r.scan.card_no);
+          if (inp && !inp.value) inp.value = r.scan.card_no; }
+      } catch {}
+    }, 1500);
+  }
   on('closeUnlink', () => { S.unlink = false; render(); });
   on('cancelUnlink', () => { S.unlink = false; render(); });
   on('doUnlink', async () => { try { const r = await api('/gym/members/'+S.memberId+'/card', {method:'DELETE'});
@@ -679,11 +765,8 @@ function addView() {
   <div style="display:flex;flex-direction:column;gap:16px">
     <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:14px">
       <h3 style="margin:0;font-size:15.5px;font-weight:600">صورة العضو</h3>
-      <div style="aspect-ratio:4/5;border-radius:12px;background:#F9F9F9;border:1px dashed #D2D2D7;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#6E6E73">
-        <div style="width:52px;height:52px;border-radius:50%;border:1.5px solid #D2D2D7;display:grid;place-items:center"><div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #D2D2D7"></div></div>
-        <div style="text-align:center;font-size:12px;line-height:1.6">معاينة الكاميرا<br><span style="color:#6E6E73;font-weight:600">غير مفعّلة في هذه النسخة</span></div>
-      </div>
-      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">تُستخدم الصورة للتحقق البصري في ملف العضو.</p>
+      <div id="photoBox" style="display:flex;flex-direction:column;gap:12px"></div>
+      <p style="margin:0;font-size:11.5px;color:#6E6E73;line-height:1.6">تُحفظ الصورة مع العضو وتظهر في ملفه. الكاميرا تعمل على localhost أو HTTPS — وإلا استخدم «رفع صورة».</p>
     </div>
     <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:16px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -744,6 +827,72 @@ function addView() {
 </div>`;
 }
 function wireAdd() {
+  // ---- photo: live camera preview with capture, or file upload ----
+  const photoBoxHTML = () => {
+    if (S.photoData) return `
+      <img src="${S.photoData}" alt="" style="width:100%;aspect-ratio:4/5;object-fit:cover;border-radius:12px;background:#E8E8ED">
+      <div style="display:flex;gap:8px">
+        <button id="photoRetake" class="pillbtn gray" style="flex:1;height:36px;font-size:13px">إعادة</button>
+        <span class="chip" style="align-self:center;background:#D8F3C9;color:#1D1D1F">ستُحفظ مع العضو</span>
+      </div>`;
+    return `
+      <div style="position:relative;aspect-ratio:4/5;border-radius:12px;background:#F9F9F9;border:1px dashed #D2D2D7;overflow:hidden">
+        <video id="camVid" autoplay playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none"></video>
+        <div id="camPh" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#6E6E73">
+          <div style="width:52px;height:52px;border-radius:50%;border:1.5px solid #D2D2D7;display:grid;place-items:center"><div style="width:22px;height:22px;border-radius:50%;border:1.5px solid #D2D2D7"></div></div>
+          <div id="camHint" style="text-align:center;font-size:12px;line-height:1.6">جارٍ تشغيل الكاميرا…</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="photoCap" class="pillbtn blue" style="flex:1;height:36px;font-size:13px">التقاط الصورة</button>
+        <button id="photoUp" class="pillbtn gray" style="height:36px;padding:0 16px;font-size:13px">رفع صورة</button>
+      </div>
+      <input id="photoFileAdd" type="file" accept="image/*" style="display:none">`;
+  };
+  const wirePhotoBox = () => {
+    const box = $('photoBox'); if (!box) return;
+    box.innerHTML = photoBoxHTML();
+    const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+    on('photoRetake', () => { S.photoData = null; wirePhotoBox(); });
+    on('photoUp', () => { const f = $('photoFileAdd'); if (f) f.click(); });
+    on('photoCap', () => {
+      const v = $('camVid');
+      if (!S._stream || !v || !v.videoWidth) { toast('الكاميرا غير جاهزة — استخدم رفع صورة', true); return; }
+      const sc = Math.min(1, 800 / v.videoWidth);
+      const c = document.createElement('canvas');
+      c.width = Math.round(v.videoWidth*sc); c.height = Math.round(v.videoHeight*sc);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      S.photoData = c.toDataURL('image/jpeg', 0.85);
+      stopStream(); wirePhotoBox();
+    });
+    const pf = $('photoFileAdd');
+    if (pf) pf.onchange = async () => {
+      const file = pf.files && pf.files[0]; if (!file) return;
+      try { S.photoData = await fileToJpeg(file, 800); stopStream(); wirePhotoBox(); }
+      catch (e) { toast(e.message, true); }
+    };
+    if (!S.photoData) startCam();
+  };
+  const startCam = async () => {
+    const v = $('camVid'), hint = $('camHint');
+    if (!v) return;
+    if (S._stream) { v.srcObject = S._stream; v.style.display = ''; return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (hint) hint.innerHTML = 'الكاميرا غير متاحة هنا<br><span style="font-weight:600">استخدم «رفع صورة»</span>'; return;
+    }
+    try {
+      S._stream = await navigator.mediaDevices.getUserMedia({video: {facingMode: 'user', width: {ideal: 640}}});
+      const v2 = $('camVid'); // may have re-rendered while waiting for permission
+      if (!v2) { stopStream(); return; }
+      v2.srcObject = S._stream; v2.style.display = '';
+      const ph = $('camPh'); if (ph) ph.style.display = 'none';
+    } catch {
+      const h2 = $('camHint');
+      if (h2) h2.innerHTML = 'تعذر فتح الكاميرا (إذن أو اتصال غير آمن)<br><span style="font-weight:600">استخدم «رفع صورة»</span>';
+    }
+  };
+  wirePhotoBox();
+
   let gender = '';
   const paint = () => {
     const gm = $('gM'), gf = $('gF'); if (!gm) return;
@@ -782,6 +931,11 @@ function wireAdd() {
           price: +($('fPrice').value.replace(/[^\d]/g,'')) || 0, start: $('fStart').value },
       };
       const r = await api('/gym/members', {method:'POST', body: JSON.stringify(body)});
+      if (S.photoData) {
+        await api('/gym/members/'+r.member.id+'/photo', {method:'PUT', body: JSON.stringify({data: S.photoData})})
+          .catch(e => toast('حُفظ العضو دون الصورة: '+e.message, true));
+        S.photoData = null;
+      }
       toast(r.panel_synced ? 'حُفظ العضو وفُعّلت البطاقة' : 'حُفظ العضو (البوابة غير متصلة)');
       go('profile', r.member.id);
     } catch (e) { toast(e.message, true); }
@@ -804,80 +958,6 @@ function wireScan() {
       if (!!S.scan !== had || (S.scan && r.scan && S.scan.card_no !== (r.scan||{}).card_no)) { $('scanBox').innerHTML = scanPanel(); rewire(); }
     } catch {}
   }, 1500);
-}
-
-/* ================= cards ================= */
-function cardsView() {
-  const inv = {linked:0, blank:0, blocked:0};
-  S.cards.forEach(c => { if (c.status==='linked') inv.linked++; else if (c.status==='blank') inv.blank++; else inv.blocked++; });
-  const cols = 'minmax(160px,1.4fr) minmax(100px,1fr) minmax(170px,1.6fr) minmax(110px,1fr) minmax(110px,1fr) 108px';
-  return `
-<div style="min-width:1040px;max-width:1320px;display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start">
-  <div class="card" style="overflow-x:auto">
-    <div class="thead" style="grid-template-columns:${cols};min-width:880px"><span>رقم البطاقة</span><span>الحالة</span><span>العضو المرتبط</span><span>تاريخ الإصدار</span><span>آخر استخدام</span><span></span></div>
-    ${S.cards.length ? S.cards.map(c => { const [bg,tone] = cardChip(c.status); const linked = c.status !== 'blank';
-      const actions = c.status === 'linked'
-        ? `<button data-unlink="${esc(c.member_id)}" class="pillbtn" style="justify-self:end;height:32px;padding:0 14px;font-size:12.5px;background:#FFF5F5;color:#E85F46">فك الربط</button>`
-        : c.status === 'blank'
-        ? `<button data-linkc="${esc(c.serial)}" class="pillbtn blue" style="justify-self:end;height:32px;padding:0 14px;font-size:12.5px">ربط</button>`
-        : `<button data-unblock="${esc(c.serial)}" class="pillbtn gray" style="justify-self:end;height:32px;padding:0 14px;font-size:12.5px">${c.member_id?'إلغاء الإيقاف':'إعادة للفارغة'}</button>`;
-      return `<div class="trow" style="grid-template-columns:${cols};min-width:880px;cursor:default">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span style="width:26px;height:18px;border-radius:3px;flex:none;background:${linked?'#1D1D1F':'#F9F9F9'};border:1px solid ${linked?'#1D1D1F':'#D2D2D7'}"></span>
-        <span style="font-size:13px;font-weight:600;letter-spacing:.02em">${esc(serial4(c.serial))}</span>
-      </div>
-      <span class="chip" style="justify-self:start;background:${bg};color:${tone}">${AR.cardStatus[c.status]}</span>
-      <div style="display:flex;align-items:center;gap:10px;min-width:0">
-        ${c.member_name ? `<div class="avatar" style="width:30px;height:30px;font-size:10.5px">${esc(initials(c.member_name))}</div>` : ''}
-        <span style="font-size:13px;font-weight:600;color:${c.member_name?'#1D1D1F':'#6E6E73'}">${esc(c.member_name||'غير مرتبطة')}</span>
-      </div>
-      <span style="font-size:13px;color:#6E6E73">${dmy(c.issued_at)}</span>
-      <span style="font-size:13px;color:#6E6E73">${c.last_used && new Date(c.last_used).getFullYear()>1980 ? when(c.last_used) : 'لم تُستخدم'}</span>
-      ${actions}
-    </div>`; }).join('') : '<div style="padding:34px 24px;font-size:13px;color:#6E6E73">لا بطاقات مسجلة — امسح بطاقة أو أدخل رقمها من اللوحة الجانبية.</div>'}
-  </div>
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:16px">
-      <h3 style="margin:0;font-size:15.5px;font-weight:600">ربط بطاقة جديدة</h3>
-      <div id="scanBox">${scanPanel()}</div>
-      <label class="field"><span>أو أدخل الرقم يدوياً</span><input id="manualSerial" placeholder="رقم البطاقة" value="${esc(S.pendingCard)}"></label>
-      <label class="field"><span>العضو</span>
-        <select id="linkMember" style="all:unset;background:#F9F9F9;border:1px solid #EDEDED;border-radius:6px;height:40px;padding:0 12px;font-size:13px;color:#1D1D1F">
-          <option value="">— اختر عضواً —</option>
-          ${S.members.map(m => `<option value="${esc(m.id)}" ${!m.card_no?'':'disabled'}>${esc(m.name)} — ${esc(m.id)}${m.card_no?' (مرتبط)':''}</option>`).join('')}
-        </select>
-      </label>
-      <button id="doLink" class="pillbtn blue" style="height:38px;font-size:13.5px">تأكيد الربط</button>
-    </div>
-    <div class="card" style="padding:22px 24px;display:flex;flex-direction:column;gap:12px">
-      <h3 style="margin:0;font-size:15.5px;font-weight:600">مخزون البطاقات</h3>
-      <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6E6E73">مرتبطة</span><span style="font-weight:600">${fmtN(inv.linked)}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6E6E73">فارغة</span><span style="font-weight:600">${fmtN(inv.blank)}</span></div>
-      <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:#6E6E73">مفقودة / موقوفة</span><span style="font-weight:600;color:#E85F46">${fmtN(inv.blocked)}</span></div>
-    </div>
-  </div>
-</div>`;
-}
-function wireCards() {
-  wireScan();
-  document.querySelectorAll('[data-unlink]').forEach(b => b.onclick = async () => {
-    try { const r = await api('/gym/members/'+b.dataset.unlink+'/card', {method:'DELETE'});
-      toast(r.panel_synced?'فُكَّ الربط':'فُكَّ الربط (البوابة غير متصلة)'); go('cards'); } catch (e) { toast(e.message, true); } });
-  document.querySelectorAll('[data-linkc]').forEach(b => b.onclick = () => { S.pendingCard = b.dataset.linkc; render(); wireScreen(); });
-  document.querySelectorAll('[data-unblock]').forEach(b => b.onclick = async () => {
-    const c = S.cards.find(x => x.serial === b.dataset.unblock);
-    const to = c && c.member_id ? 'linked' : 'blank';
-    try { await api('/gym/cards/'+encodeURIComponent(b.dataset.unblock), {method:'PUT', body: JSON.stringify({status: to === 'linked' ? 'linked' : 'blank'})});
-      toast('حُدِّثت الحالة'); go('cards'); } catch (e) { toast(e.message, true); } });
-  $('doLink').onclick = async () => {
-    const serial = $('manualSerial').value.trim() || S.pendingCard || (S.scan && S.scan.card_no) || '';
-    const mid = $('linkMember').value;
-    if (!serial) { toast('امسح البطاقة أو أدخل رقمها', true); return; }
-    if (!mid) { toast('اختر العضو', true); return; }
-    try { const r = await api('/gym/members/'+mid+'/card', {method:'POST', body: JSON.stringify({card_no: serial})});
-      toast(r.panel_synced?'رُبطت البطاقة وفُعّلت':'رُبطت البطاقة (البوابة غير متصلة)'); S.pendingCard=''; go('profile', mid); }
-    catch (e) { toast(e.message, true); }
-  };
 }
 
 /* ================= renew ================= */
@@ -1168,7 +1248,6 @@ function wireScreen() {
     case 'members': wireMembers(); break;
     case 'profile': wireProfile(); break;
     case 'add': wireAdd(); break;
-    case 'cards': wireCards(); break;
     case 'renew': wireRenew(); break;
     case 'gates': wireGates(); break;
   }
