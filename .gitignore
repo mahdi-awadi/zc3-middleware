@@ -11,3 +11,12 @@ gym.json
 gym-*.json
 gym-photos/
 release/zc3-middleware-*
+
+# activation + administrator account (created on first run; never commit)
+license.dat
+license.dat.tmp
+admin.json
+admin.json.tmp
+backups/
+gym-logo.img
+gym-logo.img.tmp

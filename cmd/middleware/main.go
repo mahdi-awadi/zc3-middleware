@@ -1,25 +1,19 @@
-// Command middleware is the gym access system: it fronts a ZKTeco C3 panel
-// and runs the whole membership layer — members with time-boxed subscriptions
-// bound to cards, a per-swipe gate decision engine, and the embedded Arabic
-// console + gate kiosk served at "/". All configuration comes from the
-// environment / .env.
+// Command middleware is the headless gym access system: it fronts a ZKTeco C3
+// panel and runs the whole membership layer — members with time-boxed
+// subscriptions bound to cards, a per-swipe gate decision engine, and the
+// embedded Arabic console served at "/". All configuration comes from the
+// environment / .env. (The Windows desktop build is cmd/gymgate.)
 package main
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/awadi/zk-c3-middleware/internal/api"
-	"github.com/awadi/zk-c3-middleware/internal/c3"
+	"github.com/awadi/zk-c3-middleware/internal/app"
 	"github.com/awadi/zk-c3-middleware/internal/config"
-	"github.com/awadi/zk-c3-middleware/internal/gym"
-	"github.com/awadi/zk-c3-middleware/internal/supervisor"
 )
 
 // version is injected at build time: -ldflags "-X main.version=..."
@@ -37,130 +31,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-
-	log := newLogger(cfg.LogLevel, cfg.LogFormat)
+	log := app.NewLogger(os.Stdout, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
 
-	// Root context cancelled on SIGINT/SIGTERM for graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Gym data first: the active gate (chosen from the console) decides which
-	// panel to dial; PANEL_ADDR is the fallback for first boot.
-	gymStore, err := gym.Open(cfg.GymDataPath)
+	a, err := app.New(cfg, version, log)
 	if err != nil {
 		return err
 	}
-	panelAddr := cfg.PanelAddr
-	if ag := gymStore.ActiveGate(); ag != nil {
-		panelAddr = ag.Addr
-	}
-	log.Info("starting gym system", "version", version, "panel", panelAddr, "http", cfg.HTTPAddr)
-	if panelAddr == "" {
-		log.Warn("no panel address yet — add a gate from the console (البوابات) or set PANEL_ADDR")
-	}
-
-	// Panel client + connection supervisor.
-	panel := c3.New(panelAddr,
-		c3.WithTimeout(cfg.IOTimeout),
-		c3.WithPollInterval(cfg.EventPollInterval),
-		c3.WithReplayBacklog(cfg.EventReplayBacklog),
-		c3.WithAllowWrites(cfg.AllowWrites),
-	)
-
-	srv := api.New(panel, api.Options{
-		APIKey:          cfg.APIKey,
-		CORSOrigins:     cfg.CORSOrigins,
-		EventBufferSize: cfg.EventBufferSize,
-		DoorDefaultSecs: cfg.DoorDefaultSeconds,
-		AllowWrites:     cfg.AllowWrites,
-		PanelID:         cfg.PanelID,
-		Version:         version,
-		Logger:          log,
-	})
-
-	// Gym membership layer: members + subscriptions bound to cards; the gym
-	// engine decides the gate on every swipe and feeds the live feed.
-	gymEngine := gym.NewEngine(gymStore, panel, cfg.DoorDefaultSeconds, cfg.IOTimeout, log)
-	go gymEngine.Run(ctx)
-	srv.SetGym(gymStore, gymEngine)
-	// Gate switching from the console: repoint the client and drop the current
-	// session; the supervisor's reconnect loop dials the new address.
-	srv.SetGateSwitch(func(addr string) {
-		log.Info("switching panel connection", "addr", addr)
-		panel.SetAddr(addr)
-		_ = panel.Close()
-	})
-	if gymStore.Config().Enabled {
-		log.Info("gym gate enforcement enabled", "data", cfg.GymDataPath)
-	}
-
-	// Every panel event feeds the gate engine (and the event counter).
-	sink := func(ev c3.Event) {
-		srv.NoteEvent(ev)
-		gymEngine.Handle(ev)
-	}
-	sup := supervisor.New(panel, sink, supervisor.Config{
-		ReconnectMin: cfg.ReconnectMin,
-		ReconnectMax: cfg.ReconnectMax,
-		Logger:       log,
-	})
-	srv.SetReadiness(sup.Connected) // /readyz reflects panel link state
-
-	go sup.Run(ctx)
-
-	// HTTP server.
-	httpSrv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           srv.Routes(),
-		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
-	}
-
-	errCh := make(chan error, 1)
-	go func() {
-		log.Info("http listening", "addr", cfg.HTTPAddr)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		log.Info("shutdown signal received")
-	case err := <-errCh:
-		return err
-	}
-
-	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-	defer cancel()
-	if err := httpSrv.Shutdown(shutCtx); err != nil {
-		log.Warn("graceful shutdown timed out", "err", err)
-	}
-	_ = panel.Close()
-	log.Info("stopped")
-	return nil
-}
-
-// newLogger builds the slog logger from LOG_LEVEL / LOG_FORMAT.
-func newLogger(level, format string) *slog.Logger {
-	var lv slog.Level
-	switch level {
-	case "debug":
-		lv = slog.LevelDebug
-	case "warn":
-		lv = slog.LevelWarn
-	case "error":
-		lv = slog.LevelError
-	default:
-		lv = slog.LevelInfo
-	}
-	opts := &slog.HandlerOptions{Level: lv}
-	var h slog.Handler
-	if format == "text" {
-		h = slog.NewTextHandler(os.Stdout, opts)
-	} else {
-		h = slog.NewJSONHandler(os.Stdout, opts)
-	}
-	return slog.New(h)
+	return a.Run(ctx)
 }

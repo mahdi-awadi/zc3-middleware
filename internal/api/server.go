@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/awadi/zk-c3-middleware/internal/auth"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/gym"
 )
@@ -40,6 +41,9 @@ type Options struct {
 	PanelID         string
 	Version         string
 	Logger          *slog.Logger
+	// Auth enables activation + single-user sign-in for the console. When nil,
+	// only the API key protects the routes (headless / legacy deployments).
+	Auth *auth.Manager
 }
 
 type Server struct {
@@ -86,6 +90,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("POST /doors/{n}/open", s.handleOpenDoor)
+
+	// Console sign-in (activation, the administrator account, sessions).
+	s.authRoutes(mux)
 
 	// Gym membership subsystem (members, subscriptions, cards, gate kiosk).
 	s.gymRoutes(mux)
@@ -162,6 +169,13 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		securityHeaders(w, r)
+		if s.opt.Auth != nil {
+			if s.guardConsole(w, r) {
+				next.ServeHTTP(w, r)
+			}
+			return
+		}
 		if s.opt.APIKey != "" && !isPublic(r.URL.Path) {
 			// Accept the key via Authorization header or ?api_key= (for EventSource).
 			ok := subtleCompare(r.Header.Get("Authorization"), "Bearer "+s.opt.APIKey) ||
@@ -187,7 +201,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, X-Amad")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
