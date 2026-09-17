@@ -3,7 +3,7 @@ PKG         := ./cmd/middleware
 VERSION     ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS     := -s -w -X main.version=$(VERSION)
 
-.PHONY: all build build-linux run test vet tidy clean docker
+.PHONY: all build build-linux build-arm64 build-windows run test vet tidy clean docker
 
 all: build
 
@@ -17,6 +17,9 @@ build-linux: ## Static linux/amd64 binary -> dist/
 build-arm64: ## Static linux/arm64 (e.g. Raspberry Pi) -> dist/
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
 		go build -ldflags "$(LDFLAGS)" -o dist/$(BINARY)-arm64 $(PKG)
+
+build-windows: ## Windows desktop app (Electron + Go sidecar) -> desktop/release/
+	powershell -ExecutionPolicy Bypass -File scripts/build-windows.ps1 -Version $(VERSION)
 
 run: ## Run with .env
 	go run $(PKG)

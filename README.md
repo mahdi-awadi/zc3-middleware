@@ -93,7 +93,51 @@ make run                     # or: go run ./cmd/middleware
 curl localhost:8000/healthz
 ```
 
-## Gym console (نادي المنارة)
+## Windows desktop app (Electron)
+
+For the reception PC the system ships as an **Electron desktop app** in
+[`desktop/`](desktop/): Electron bundles the Go server as a sidecar
+(`resources\bin\middleware.exe`), starts it, and shows the console in its own
+window. Closing the window hides it to the **tray** — the gate keeps working;
+the tray menu has open console / open in browser / start with Windows / open
+data folder / quit. A second launch just focuses the window.
+
+```powershell
+scripts\build-windows.ps1            # -> desktop\release\GymGate-<ver>-x64.exe (installer)
+                                     #    desktop\release\GymGate-<ver>-portable.exe
+scripts\build-windows.ps1 -Sidecar   # rebuild only the Go server, then: cd desktop; npm start
+```
+
+Data lives per user in `%APPDATA%\GymGate\` (`gym.json`, `gym-photos\`,
+`server.log`) — override with `GYMGATE_DATA_DIR` or `GYM_DATA_PATH`. It reads
+a `.env` next to the installed exe (falling back to one in the data dir); real
+environment variables still win. A port clash (`8000` in use) is shown as a
+dialog. Windows Firewall will ask once to allow LAN access to the console.
+
+## Activation and sign-in
+
+The console is a licensed, single-administrator app:
+
+1. **First run** (on the gym PC itself): enter an activation code
+   (`AMAD-XXXXX-XXXXX-XXXXX-XXXXX`), then create the administrator's username
+   and password. The code is bound to that computer.
+2. **Every day**: sign in with username and password. Sessions last 12 hours;
+   5 wrong passwords lock the login for 30 s, doubling up to 15 min.
+
+Stored next to the gym data (never commit them — already in `.gitignore`):
+
+| File | Contents |
+|---|---|
+| `license.dat` | activation, AES-GCM encrypted with a key derived from this PC's machine ID |
+| `admin.json`  | username + PBKDF2-SHA256 password hash (600k iterations) |
+| `gym-logo.img` | gym logo printed on receipts |
+
+The app only contains SHA-256 fingerprints of the issued codes; the code list
+is distributed separately. Forgotten password: stop the server, delete
+`admin.json`, start again — setup asks only for a new account (the activation
+stays). `API_KEY` in `.env` still authorises machine clients.
+
+## Gym console (أمد جم)
 
 The product is a complete gym membership system riding on the gate: members
 with time-boxed subscriptions bound to cards, a per-swipe decision engine

@@ -1,4 +1,4 @@
-# Gym subsystem (نادي المنارة)
+# Gym subsystem (أمد جم)
 
 A gym membership layer on top of the C3 gate middleware: members with
 time-boxed subscriptions bound to access cards, a per-swipe decision engine,

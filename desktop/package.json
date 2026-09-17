@@ -1,0 +1,49 @@
+{
+  "name": "gymgate",
+  "productName": "GymGate",
+  "version": "1.0.0",
+  "description": "أمد جم — نظام الاشتراكات والبوابة",
+  "main": "main.js",
+  "author": "أمد جم",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.almanara.gymgate",
+    "productName": "GymGate",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "assets/**"
+    ],
+    "extraResources": [
+      { "from": "bin/middleware.exe", "to": "bin/middleware.exe" },
+      { "from": "../.env.example", "to": ".env.example" }
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "assets/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "أمد جم",
+      "language": "1025"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
+    }
+  }
+}
