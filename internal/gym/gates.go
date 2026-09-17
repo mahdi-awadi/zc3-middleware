@@ -177,9 +177,7 @@ func (s *Store) SetPlanGates(m map[string][]string) error {
 	defer s.mu.Unlock()
 	clean := map[string][]string{}
 	for plan, ids := range m {
-		switch plan {
-		case AccessGym, AccessClasses, AccessFull:
-		default:
+		if p := s.planLocked(plan); p == nil || p.Deleted {
 			continue
 		}
 		var keep []string

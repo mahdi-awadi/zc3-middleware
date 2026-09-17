@@ -289,6 +289,53 @@ func TestGatesAndPlanAccess(t *testing.T) {
 	_ = g2
 }
 
+func TestRenewWhileFrozenCreditsFreeze(t *testing.T) {
+	s := newStore(t)
+	v := addMember(t, s, "مجمّد", "500", 1) // ends 2026-09-27
+	if _, err := s.Freeze(v.ID, 10, "سفر", now); err != nil {
+		t.Fatal(err)
+	}
+	// Renew 4 days into the freeze: the old period gains 5 credited days and
+	// the new one chains from that pushed-out end.
+	renewAt := now.AddDate(0, 0, 4)
+	got, err := s.Renew(v.ID, NewSubInput{Months: 1, Access: AccessGym}, renewAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusActive {
+		t.Fatalf("status = %s", got.Status)
+	}
+	if len(got.Subs) != 2 || got.Subs[0].FrozenAt != nil || got.Subs[0].FrozenTot != 5 {
+		t.Fatalf("old sub = %+v", got.Subs[0])
+	}
+	wantStart := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	if !got.Subs[1].Start.Equal(wantStart) || !got.Subs[0].End.Equal(wantStart) {
+		t.Fatalf("new start %v / old end %v, want %v", got.Subs[1].Start, got.Subs[0].End, wantStart)
+	}
+	if _, err := s.Unfreeze(v.ID, renewAt); err == nil {
+		t.Fatal("nothing should be frozen after renew")
+	}
+	// An expired subscription cannot be frozen.
+	if _, err := s.Freeze(v.ID, 3, "", now.AddDate(1, 0, 0)); err == nil {
+		t.Fatal("freeze after expiry must fail")
+	}
+}
+
+func TestPhotoRejectsUnsafeIDs(t *testing.T) {
+	s, err := Open(t.TempDir() + "/gym.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"../gym", "..", "a/b", `a\b`, ""} {
+		if _, err := s.Photo(id); err == nil {
+			t.Fatalf("Photo(%q) must fail", id)
+		}
+		if err := s.DeletePhoto(id); err == nil {
+			t.Fatalf("DeletePhoto(%q) must fail", id)
+		}
+	}
+}
+
 func TestPhotoRoundTrip(t *testing.T) {
 	path := t.TempDir() + "/gym.json"
 	s, err := Open(path)
@@ -323,5 +370,33 @@ func TestPhotoRoundTrip(t *testing.T) {
 	}
 	if _, err := s.Photo(v.ID); err == nil {
 		t.Fatal("photo should be gone with the member")
+	}
+}
+
+func TestCardMatchesIgnoringLeadingZeros(t *testing.T) {
+	for in, want := range map[string]string{"0012345678": "12345678", " 42 ": "42", "000": "0", "": ""} {
+		if got := NormalizeCard(in); got != want {
+			t.Errorf("NormalizeCard(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSameCardUSBvsWiegand26(t *testing.T) {
+	// 0x00BC614E = 12345678; a USB reader's 32-bit 3735928559 (0xDEADBEEF) is 0xADBEEF = 11386607 on Wiegand-26.
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"0012345678", "12345678", true},
+		{"3735928559", "11386607", true},
+		{"11386607", "3735928559", true},
+		{"3735928559", "11386608", false},
+		{"552211", "777888", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		if got := SameCard(c.a, c.b); got != c.want {
+			t.Errorf("SameCard(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }

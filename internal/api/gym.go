@@ -32,6 +32,17 @@ func (s *Server) gymRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /gym/config", s.gymGuard(s.handleGymConfig))
 	mux.HandleFunc("PUT /gym/config", s.gymGuard(s.handleGymConfigSet))
 
+	mux.HandleFunc("GET /gym/plans", s.gymGuard(s.handleGymPlans))
+	mux.HandleFunc("POST /gym/plans", s.gymGuard(s.handleGymPlanAdd))
+	mux.HandleFunc("PUT /gym/plans/{key}", s.gymGuard(s.handleGymPlanUpdate))
+	mux.HandleFunc("DELETE /gym/plans/{key}", s.gymGuard(s.handleGymPlanDelete))
+
+	mux.HandleFunc("GET /gym/payments", s.gymGuard(s.handleGymPayments))
+	mux.HandleFunc("GET /gym/business", s.gymGuard(s.handleGymBusiness))
+	mux.HandleFunc("PUT /gym/business", s.gymGuard(s.handleGymBusinessSet))
+	mux.HandleFunc("GET /gym/business/logo", s.gymGuard(s.handleGymLogoGet))
+	mux.HandleFunc("PUT /gym/business/logo", s.gymGuard(s.handleGymLogoSet))
+	mux.HandleFunc("DELETE /gym/business/logo", s.gymGuard(s.handleGymLogoDelete))
 	mux.HandleFunc("GET /gym/members", s.gymGuard(s.handleGymMembers))
 	mux.HandleFunc("POST /gym/members", s.gymGuard(s.handleGymMemberAdd))
 	mux.HandleFunc("GET /gym/members/{id}", s.gymGuard(s.handleGymMember))
@@ -105,6 +116,118 @@ func (s *Server) handleGymConfigSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, s.gym.Config())
+}
+
+// ---- plans ----
+
+func (s *Server) handleGymPlans(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.gym.Plans())
+}
+
+func (s *Server) handleGymPlanAdd(w http.ResponseWriter, r *http.Request) {
+	var b gym.PlanPrices
+	if !decode(w, r, &b) {
+		return
+	}
+	p, err := s.gym.AddPlan(b)
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 201, p)
+}
+
+func (s *Server) handleGymPlanUpdate(w http.ResponseWriter, r *http.Request) {
+	var b gym.PlanPrices
+	if !decode(w, r, &b) {
+		return
+	}
+	p, err := s.gym.UpdatePlan(r.PathValue("key"), b)
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, p)
+}
+
+func (s *Server) handleGymPlanDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.gym.DeletePlan(r.PathValue("key")); err != nil {
+		gymErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "deleted"})
+}
+
+// ---- gym details for printing ----
+
+func (s *Server) writeBusiness(w http.ResponseWriter) {
+	b, hasLogo := s.gym.Business()
+	writeJSON(w, 200, map[string]any{"name": b.Name, "phone": b.Phone, "address": b.Address, "note": b.Note, "has_logo": hasLogo})
+}
+
+func (s *Server) handleGymBusiness(w http.ResponseWriter, r *http.Request) { s.writeBusiness(w) }
+
+func (s *Server) handleGymBusinessSet(w http.ResponseWriter, r *http.Request) {
+	var b gym.Business
+	if !decode(w, r, &b) {
+		return
+	}
+	if err := s.gym.SetBusiness(b); err != nil {
+		gymErr(w, err)
+		return
+	}
+	s.writeBusiness(w)
+}
+
+func (s *Server) handleGymLogoGet(w http.ResponseWriter, r *http.Request) {
+	raw, err := s.gym.Logo()
+	if err != nil {
+		gymErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", http.DetectContentType(raw))
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(raw)
+}
+
+func (s *Server) handleGymLogoSet(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Data string `json:"data"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	b64 := body.Data
+	if i := strings.Index(b64, ";base64,"); i >= 0 {
+		b64 = b64[i+len(";base64,"):]
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid base64 image data"})
+		return
+	}
+	if ct := http.DetectContentType(raw); !strings.HasPrefix(ct, "image/") {
+		writeJSON(w, 400, map[string]string{"error": "not an image: " + ct})
+		return
+	}
+	if err := s.gym.SaveLogo(raw); err != nil {
+		gymErr(w, err)
+		return
+	}
+	s.writeBusiness(w)
+}
+
+func (s *Server) handleGymLogoDelete(w http.ResponseWriter, r *http.Request) {
+	if err := s.gym.DeleteLogo(); err != nil {
+		gymErr(w, err)
+		return
+	}
+	s.writeBusiness(w)
+}
+
+// handleGymPayments lists all payments (deleted members included) for revenue reports.
+func (s *Server) handleGymPayments(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.gym.Payments())
 }
 
 // ---- members ----
@@ -510,18 +633,24 @@ func (s *Server) handleGymScanClear(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGymSimulate injects a swipe (demo / desk enrollment without hardware).
-// {"card_no":"...", "door":1, "dry_run":true} — dry_run skips the door relay.
+// {"card_no":"...", "door":1, "dry_run":true} — dry_run skips the door relay;
+// scan_only just captures the card for the link flow (no decision, no history).
 func (s *Server) handleGymSimulate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		CardNo string `json:"card_no"`
-		Door   int    `json:"door"`
-		DryRun bool   `json:"dry_run"`
+		CardNo   string `json:"card_no"`
+		Door     int    `json:"door"`
+		DryRun   bool   `json:"dry_run"`
+		ScanOnly bool   `json:"scan_only"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	if body.CardNo == "" {
 		writeJSON(w, 400, map[string]string{"error": "card_no is required"})
+		return
+	}
+	if body.ScanOnly {
+		writeJSON(w, 200, map[string]any{"status": "ok", "scan": s.gymEngine.CaptureScan(body.CardNo)})
 		return
 	}
 	u := s.gymEngine.Simulate(body.CardNo, body.Door, !body.DryRun)

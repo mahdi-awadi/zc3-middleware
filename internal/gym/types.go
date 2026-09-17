@@ -44,7 +44,8 @@ const (
 type Subscription struct {
 	Start     time.Time  `json:"start"`
 	Months    int        `json:"months"`
-	End       time.Time  `json:"end"` // Start + Months, extended by freezes
+	Days      int        `json:"days,omitempty"` // short pass (1, 3, 7 days) instead of months
+	End       time.Time  `json:"end"`            // Start + Months (or Days × 24h), extended by freezes
 	Price     int64      `json:"price"`
 	Discount  int64      `json:"discount"`
 	Access    string     `json:"access"`     // gym | gym_classes | full
@@ -61,6 +62,15 @@ type Payment struct {
 	Method  string    `json:"method"`
 	Receipt int       `json:"receipt"` // sequential receipt number
 	Note    string    `json:"note"`    // e.g. "اشتراك جديد", "تجديد"
+}
+
+// PaymentRecord is a payment together with who paid it. Payments of deleted
+// members are kept (Deleted = true) so revenue history never shrinks.
+type PaymentRecord struct {
+	Payment
+	MemberID string `json:"member_id"`
+	Name     string `json:"name"`
+	Deleted  bool   `json:"deleted,omitempty"`
 }
 
 // LogEntry is a member-timeline event (plan change, freeze, card link, ...).
@@ -134,6 +144,14 @@ type Config struct {
 	PriceGym    int64 `json:"price_gym"`    // default monthly price: صالة فقط
 	PriceClass  int64 `json:"price_classes"`
 	PriceFull   int64 `json:"price_full"`
+
+	// Plans are the sellable access levels (name + default monthly price). The
+	// three legacy price fields above seed them on first load and stay in sync
+	// for the built-in plans.
+	Plans []Plan `json:"plans,omitempty"`
+
+	// Business is printed on receipts and statements (name, phone, terms).
+	Business Business `json:"business"`
 
 	// ActiveGate is the gate whose panel the middleware is connected to.
 	ActiveGate string `json:"active_gate,omitempty"`

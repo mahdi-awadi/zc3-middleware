@@ -78,6 +78,12 @@ func (s *Supervisor) session(ctx context.Context) (bool, error) {
 	s.connected.Store(true)
 	s.log.Info("panel connected")
 
+	// Keep the panel clock on server time: a drifted clock (e.g. reset to
+	// 2020 after a power loss) stamps every swipe with a wrong date.
+	if err := s.panel.SyncTime(ctx, time.Now()); err != nil {
+		s.log.Warn("panel clock sync failed", "err", err)
+	}
+
 	events, err := s.panel.Events(ctx)
 	if err != nil {
 		return true, err

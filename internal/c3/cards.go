@@ -140,6 +140,18 @@ func (c *Client) DeleteCard(ctx context.Context, cardNo string) error {
 }
 
 // setData writes one record to a table (SETDATA 0x07, binary format).
+// RevokeAuthorization deletes the panel's own access rule for a PIN, so the
+// panel stops opening doors for that card by itself. The user record stays.
+func (c *Client) RevokeAuthorization(ctx context.Context, pin string) error {
+	if !c.allowWrites {
+		return ErrWritesDisabled
+	}
+	if pin == "" {
+		return fmt.Errorf("c3: pin required")
+	}
+	return c.deleteData(ctx, "userauthorize", "Pin", pin)
+}
+
 func (c *Client) setData(ctx context.Context, table string, values map[string]string) error {
 	sch, err := c.schema(ctx)
 	if err != nil {

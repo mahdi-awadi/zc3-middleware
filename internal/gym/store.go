@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ type data struct {
 	Cards       []*CardRec `json:"cards"`
 	Gates       []*Gate    `json:"gates"`
 	Checkins    []Checkin  `json:"checkins"`
+	// ArchivedPayments keeps the money of deleted members for revenue reports.
+	ArchivedPayments []PaymentRecord `json:"archived_payments,omitempty"`
 }
 
 // Store holds all gym state with safe concurrent access + JSON persistence.
@@ -55,6 +58,9 @@ func Open(path string) (*Store, error) {
 		}
 		return nil, err
 	}
+	// Plans in the defaults must not shadow a file saved before plans existed:
+	// those get their plans from the file's own legacy prices below.
+	s.d.Config.Plans = nil
 	if err := json.Unmarshal(b, &s.d); err != nil {
 		return nil, fmt.Errorf("gym: parse %s: %w", path, err)
 	}
@@ -64,11 +70,20 @@ func Open(path string) (*Store, error) {
 	if s.d.NextReceipt == 0 {
 		s.d.NextReceipt = 1000
 	}
+	if s.d.Config.Plans == nil {
+		s.d.Config.Plans = legacyPlans(s.d.Config)
+	}
+	for i := range s.d.Config.Plans {
+		p := &s.d.Config.Plans[i]
+		if p.Price1D == 0 && p.Price3D == 0 && p.Price7D == 0 {
+			p.Price1D, p.Price3D, p.Price7D = defaultPassPrice(p.Price, 1), defaultPassPrice(p.Price, 3), defaultPassPrice(p.Price, 7)
+		}
+	}
 	return s, nil
 }
 
 func defaultData() data {
-	return data{
+	d := data{
 		Config: Config{
 			Enabled:     true,
 			WarnDays:    7,
@@ -80,6 +95,8 @@ func defaultData() data {
 		NextID:      1001,
 		NextReceipt: 1000,
 	}
+	d.Config.Plans = legacyPlans(d.Config)
+	return d
 }
 
 // save persists to disk (caller must hold the write lock).
@@ -115,6 +132,12 @@ func (s *Store) SetConfig(c Config) error {
 		c.WarnDays = 7
 	}
 	c.ActiveGate = s.d.Config.ActiveGate
+	if c.Plans == nil {
+		c.Plans = s.d.Config.Plans
+	}
+	if c.Business == (Business{}) {
+		c.Business = s.d.Config.Business // managed through SetBusiness
+	}
 	if c.PlanGates == nil {
 		c.PlanGates = s.d.Config.PlanGates
 	}
@@ -167,11 +190,7 @@ func (s *Store) view(m *Member, t time.Time) MemberView {
 	}
 	if sub := currentSub(m); sub != nil {
 		v.Plan = sub.Access
-		months := "شهر"
-		if sub.Months > 1 {
-			months = fmt.Sprintf("%d أشهر", sub.Months)
-		}
-		v.PlanMeta = fmt.Sprintf("%s · %s د.ع", months, group3(sub.Price))
+		v.PlanMeta = fmt.Sprintf("%s · %s د.ع", DurationLabel(*sub), group3(sub.Price))
 		v.Expiry = fmtDate(sub.End)
 	}
 	return v
@@ -204,6 +223,7 @@ type NewSubInput struct {
 	Start    time.Time `json:"-"`
 	StartStr string    `json:"start"`  // "2026-08-27" (optional; default today)
 	Months   int       `json:"months"`
+	Days     int       `json:"days"`  // short pass length in days; when set, Months must be 0
 	Price    int64     `json:"price"`  // total; 0 = months * default for access
 	Discount int64     `json:"discount"`
 	Access   string    `json:"access"`
@@ -211,12 +231,18 @@ type NewSubInput struct {
 }
 
 func (s *Store) resolveSub(in NewSubInput, now time.Time) (Subscription, error) {
-	if in.Months <= 0 || in.Months > 36 {
+	switch {
+	case in.Days > 0 && in.Months > 0:
+		return Subscription{}, errors.New("gym: give months or days, not both")
+	case in.Days > 0:
+		if in.Days > 31 {
+			return Subscription{}, errors.New("gym: days must be 1..31")
+		}
+	case in.Months <= 0 || in.Months > 36:
 		return Subscription{}, errors.New("gym: months must be 1..36")
 	}
-	switch in.Access {
-	case AccessGym, AccessClasses, AccessFull:
-	default:
+	plan := s.planLocked(in.Access)
+	if plan == nil || plan.Deleted {
 		return Subscription{}, fmt.Errorf("gym: unknown access %q", in.Access)
 	}
 	start := in.Start
@@ -229,17 +255,21 @@ func (s *Store) resolveSub(in NewSubInput, now time.Time) (Subscription, error) 
 	}
 	if start.IsZero() {
 		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		if in.Days > 0 {
+			start = now // a day pass runs 24h per day from the moment it is sold
+		}
 	}
 	price := in.Price
 	if price == 0 {
-		per := s.d.Config.PriceGym
-		switch in.Access {
-		case AccessClasses:
-			per = s.d.Config.PriceClass
-		case AccessFull:
-			per = s.d.Config.PriceFull
+		if in.Days > 0 {
+			price = plan.PassPrice(in.Days)
+		} else {
+			price = plan.Price * int64(in.Months)
 		}
-		price = per * int64(in.Months)
+	}
+	end := start.AddDate(0, in.Months, 0)
+	if in.Days > 0 {
+		end = start.Add(time.Duration(in.Days) * 24 * time.Hour)
 	}
 	pay := in.Pay
 	if pay == "" {
@@ -248,7 +278,8 @@ func (s *Store) resolveSub(in NewSubInput, now time.Time) (Subscription, error) 
 	return Subscription{
 		Start:     start,
 		Months:    in.Months,
-		End:       start.AddDate(0, in.Months, 0),
+		Days:      in.Days,
+		End:       end,
 		Price:     price,
 		Discount:  in.Discount,
 		Access:    in.Access,
@@ -271,14 +302,16 @@ func (s *Store) AddMember(m Member, sub NewSubInput, now time.Time) (MemberView,
 	m.ID = fmt.Sprintf("MGR-%d", s.d.NextID)
 	s.d.NextID++
 	m.JoinedAt = now
+	m.Visits = 0
+	m.LastSeen = time.Time{}
 	m.Subs = []Subscription{sb}
 	m.Payments = []Payment{{
 		Time: now, Amount: sb.Price - sb.Discount, Method: sb.PayMethod,
-		Receipt: s.d.NextReceipt, Note: "اشتراك جديد · " + AccessLabel(sb.Access),
+		Receipt: s.d.NextReceipt, Note: "اشتراك جديد · " + s.planNameLocked(sb.Access),
 	}}
 	s.d.NextReceipt++
 	m.Log = []LogEntry{{Time: now, Kind: "plan", Label: "اشتراك جديد",
-		Meta: fmt.Sprintf("%s · %d أشهر", AccessLabel(sb.Access), sb.Months)}}
+		Meta: s.planNameLocked(sb.Access) + " · " + DurationLabel(sb)}}
 
 	card := strings.TrimSpace(m.CardNo)
 	m.CardNo = ""
@@ -289,6 +322,7 @@ func (s *Store) AddMember(m Member, sub NewSubInput, now time.Time) (MemberView,
 			// roll back the member so a card conflict doesn't half-create
 			s.d.Members = s.d.Members[:len(s.d.Members)-1]
 			s.d.NextID--
+			s.d.NextReceipt--
 			return MemberView{}, err
 		}
 	}
@@ -343,6 +377,21 @@ func (s *Store) UpdateMember(id string, patch Member, now time.Time) (MemberView
 }
 
 // DeleteMember removes a member and frees their card.
+// Payments lists every payment ever taken, oldest first, including those of
+// deleted members.
+func (s *Store) Payments() []PaymentRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := append([]PaymentRecord(nil), s.d.ArchivedPayments...)
+	for _, m := range s.d.Members {
+		for _, p := range m.Payments {
+			out = append(out, PaymentRecord{Payment: p, MemberID: m.ID, Name: m.Name})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
+	return out
+}
+
 func (s *Store) DeleteMember(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -355,6 +404,9 @@ func (s *Store) DeleteMember(id string) error {
 				c.Status = CardBlank
 				c.MemberID = ""
 			}
+		}
+		for _, p := range m.Payments {
+			s.d.ArchivedPayments = append(s.d.ArchivedPayments, PaymentRecord{Payment: p, MemberID: m.ID, Name: m.Name, Deleted: true})
 		}
 		s.d.Members = append(s.d.Members[:i], s.d.Members[i+1:]...)
 		if p, ok := s.photoPath(id); ok {
@@ -369,9 +421,10 @@ func (s *Store) DeleteMember(id string) error {
 
 const maxPhotoBytes = 3 << 20 // 3 MB
 
-// photoPath returns the on-disk photo for a member and whether it exists.
+// photoPath returns the on-disk photo for a member and whether it exists. The
+// id comes from the URL, so anything that is not a plain file name is refused.
 func (s *Store) photoPath(id string) (string, bool) {
-	if s.photoDir == "" {
+	if s.photoDir == "" || id == "" || id != filepath.Base(id) || strings.Contains(id, "..") {
 		return "", false
 	}
 	p := filepath.Join(s.photoDir, id+".img")
@@ -398,6 +451,9 @@ func (s *Store) SavePhoto(id string, data []byte) error {
 		return err
 	}
 	p, _ := s.photoPath(id)
+	if p == "" {
+		return ErrNotFound
+	}
 	return os.WriteFile(p, data, 0o644)
 }
 
@@ -405,6 +461,9 @@ func (s *Store) SavePhoto(id string, data []byte) error {
 func (s *Store) Photo(id string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.find(id) == nil {
+		return nil, ErrNotFound
+	}
 	p, ok := s.photoPath(id)
 	if !ok {
 		return nil, ErrNotFound
@@ -416,6 +475,9 @@ func (s *Store) Photo(id string) ([]byte, error) {
 func (s *Store) DeletePhoto(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.find(id) == nil {
+		return ErrNotFound
+	}
 	p, ok := s.photoPath(id)
 	if !ok {
 		return ErrNotFound
@@ -464,9 +526,17 @@ func (s *Store) Renew(id string, in NewSubInput, now time.Time) (MemberView, err
 	if m == nil {
 		return MemberView{}, ErrNotFound
 	}
+	// A frozen subscription is lifted first so its remaining days are credited
+	// (pushed onto the end) instead of being lost under the new period.
+	if sub := currentSub(m); sub != nil && sub.FrozenAt != nil {
+		s.unfreezeLocked(m, sub, now)
+	}
 	if in.Start.IsZero() && in.StartStr == "" {
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		if sub := currentSub(m); sub != nil && sub.FrozenAt == nil && sub.End.After(start) {
+		if in.Days > 0 {
+			start = now
+		}
+		if sub := currentSub(m); sub != nil && sub.End.After(start) {
 			start = sub.End // extend, don't overlap
 		}
 		in.Start = start
@@ -478,11 +548,11 @@ func (s *Store) Renew(id string, in NewSubInput, now time.Time) (MemberView, err
 	m.Subs = append(m.Subs, sb)
 	m.Payments = append(m.Payments, Payment{
 		Time: now, Amount: sb.Price - sb.Discount, Method: sb.PayMethod,
-		Receipt: s.d.NextReceipt, Note: "تجديد · " + AccessLabel(sb.Access),
+		Receipt: s.d.NextReceipt, Note: "تجديد · " + s.planNameLocked(sb.Access),
 	})
 	s.d.NextReceipt++
 	m.Log = append(m.Log, LogEntry{Time: now, Kind: "plan", Label: "تجديد الاشتراك",
-		Meta: fmt.Sprintf("%s · %d أشهر", AccessLabel(sb.Access), sb.Months)})
+		Meta: s.planNameLocked(sb.Access) + " · " + DurationLabel(sb)})
 	if err := s.save(); err != nil {
 		return MemberView{}, err
 	}
@@ -504,6 +574,9 @@ func (s *Store) Freeze(id string, days int, reason string, now time.Time) (Membe
 	}
 	if sub.FrozenAt != nil {
 		return MemberView{}, errors.New("gym: already frozen")
+	}
+	if !now.Before(sub.End) {
+		return MemberView{}, errors.New("gym: subscription already expired")
 	}
 	t := now
 	sub.FrozenAt = &t
@@ -533,6 +606,16 @@ func (s *Store) Unfreeze(id string, now time.Time) (MemberView, error) {
 	if sub == nil || sub.FrozenAt == nil {
 		return MemberView{}, errors.New("gym: not frozen")
 	}
+	s.unfreezeLocked(m, sub, now)
+	if err := s.save(); err != nil {
+		return MemberView{}, err
+	}
+	return s.view(m, now), nil
+}
+
+// unfreezeLocked lifts the freeze on sub, crediting the frozen days to its end
+// date (caller holds the write lock and saves).
+func (s *Store) unfreezeLocked(m *Member, sub *Subscription, now time.Time) {
 	frozen := int(now.Sub(*sub.FrozenAt).Hours()/24) + 1
 	sub.End = sub.End.AddDate(0, 0, frozen)
 	sub.FrozenTot += frozen
@@ -540,17 +623,60 @@ func (s *Store) Unfreeze(id string, now time.Time) (MemberView, error) {
 	sub.FrozenFor = 0
 	m.Log = append(m.Log, LogEntry{Time: now, Kind: "freeze", Label: "إلغاء التجميد",
 		Meta: fmt.Sprintf("مُدد الاشتراك %d يوماً", frozen)})
-	if err := s.save(); err != nil {
-		return MemberView{}, err
-	}
-	return s.view(m, now), nil
 }
 
 // ---- cards ----
 
+// NormalizeCard canonicalises a card number so the same card matches whether
+// it came from the C3 panel ("12345678") or a USB desk reader, which usually
+// types it zero-padded ("0012345678").
+func NormalizeCard(serial string) string {
+	serial = strings.TrimSpace(serial)
+	if t := strings.TrimLeft(serial, "0"); t != "" {
+		return t
+	}
+	if serial != "" {
+		return "0"
+	}
+	return ""
+}
+
+// SameCard reports whether two card numbers identify the same physical card.
+// Besides leading zeros, a USB desk reader types the card's full 32-bit ID
+// while the C3 panel over Wiegand-26 only sees its low 24 bits (facility +
+// number), so a long number also matches its 24-bit form.
+func SameCard(a, b string) bool {
+	a, b = NormalizeCard(a), NormalizeCard(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	x, errA := strconv.ParseUint(a, 10, 64)
+	y, errB := strconv.ParseUint(b, 10, 64)
+	if errA != nil || errB != nil {
+		return false
+	}
+	const w26 = 1<<24 - 1
+	switch {
+	case x > w26 && y <= w26:
+		return x&w26 == y
+	case y > w26 && x <= w26:
+		return y&w26 == x
+	}
+	return false
+}
+
 func (s *Store) cardBySerial(serial string) *CardRec {
+	serial = NormalizeCard(serial)
 	for _, c := range s.d.Cards {
-		if c.Serial == serial {
+		if NormalizeCard(c.Serial) == serial {
+			return c
+		}
+	}
+	for _, c := range s.d.Cards {
+		if SameCard(c.Serial, serial) {
 			return c
 		}
 	}
@@ -559,7 +685,7 @@ func (s *Store) cardBySerial(serial string) *CardRec {
 
 // RegisterCard adds a blank card to the registry.
 func (s *Store) RegisterCard(serial string, now time.Time) (CardRec, error) {
-	serial = strings.TrimSpace(serial)
+	serial = NormalizeCard(serial)
 	if serial == "" {
 		return CardRec{}, errors.New("gym: serial is required")
 	}
@@ -600,6 +726,7 @@ func (s *Store) SetCardStatus(serial, status string) (CardRec, error) {
 
 // linkLocked binds a card to a member (write lock held).
 func (s *Store) linkLocked(m *Member, serial string, now time.Time) error {
+	serial = NormalizeCard(serial)
 	c := s.cardBySerial(serial)
 	if c == nil {
 		c = &CardRec{Serial: serial, Status: CardBlank, IssuedAt: now}
@@ -608,7 +735,7 @@ func (s *Store) linkLocked(m *Member, serial string, now time.Time) error {
 	if c.MemberID != "" && c.MemberID != m.ID {
 		return fmt.Errorf("gym: card %s already linked to %s", serial, c.MemberID)
 	}
-	if m.CardNo != "" && m.CardNo != serial {
+	if m.CardNo != "" && !SameCard(m.CardNo, serial) {
 		if old := s.cardBySerial(m.CardNo); old != nil {
 			old.Status = CardBlank
 			old.MemberID = ""
@@ -734,9 +861,44 @@ func (s *Store) Decide(cardNo string, door int, t time.Time) (Decision, *MemberV
 	return Decision{Result: ResultGranted, Open: true, DaysLeft: v.DaysLeft}, &v
 }
 
+// DecideExit evaluates a swipe on an exit ("out") reader. Leaving is never
+// blocked for a registered member card, even with an expired, frozen or
+// suspended subscription; only cards that belong to nobody are refused.
+func (s *Store) DecideExit(cardNo string, t time.Time) (Decision, *MemberView) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := s.cardBySerial(cardNo)
+	if c == nil || c.MemberID == "" {
+		return Decision{Result: ResultUnknown, Reason: "بطاقة غير مسجّلة", Open: false}, nil
+	}
+	m := s.find(c.MemberID)
+	if m == nil {
+		return Decision{Result: ResultUnknown, Reason: "بطاقة غير مسجّلة", Open: false}, nil
+	}
+	v := s.view(m, t)
+	return Decision{Result: ResultGranted, Reason: "خروج", Open: true, DaysLeft: v.DaysLeft}, &v
+}
+
+// MemberByCard resolves a card serial to its linked member, if any.
+func (s *Store) MemberByCard(serial string) *MemberView {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c := s.cardBySerial(serial)
+	if c == nil || c.MemberID == "" {
+		return nil
+	}
+	m := s.find(c.MemberID)
+	if m == nil {
+		return nil
+	}
+	v := s.view(m, time.Now())
+	return &v
+}
+
 // RecordCheckin stores a decision outcome, bumps visit counters, and stamps
-// card last-used. Returns the stored record (with visit number).
-func (s *Store) RecordCheckin(ck Checkin) Checkin {
+// card last-used. Returns the stored record (with visit number); the record is
+// kept in memory even when persisting it fails.
+func (s *Store) RecordCheckin(ck Checkin) (Checkin, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if c := s.cardBySerial(ck.CardNo); c != nil {
@@ -755,8 +917,7 @@ func (s *Store) RecordCheckin(ck Checkin) Checkin {
 	if n := len(s.d.Checkins); n > maxCheckins {
 		s.d.Checkins = append([]Checkin(nil), s.d.Checkins[n-maxCheckins:]...)
 	}
-	_ = s.save()
-	return ck
+	return ck, s.save()
 }
 
 // Checkins returns the most recent records, newest first, optionally filtered
@@ -866,6 +1027,12 @@ func (s *Store) Summarize(now time.Time) Summary {
 				sum.RevenueToday += p.Amount
 				sum.PaymentsToday++
 			}
+		}
+	}
+	for _, p := range s.d.ArchivedPayments {
+		if p.Time.Format("2006-01-02") == today {
+			sum.RevenueToday += p.Amount
+			sum.PaymentsToday++
 		}
 	}
 	for _, c := range s.d.Cards {

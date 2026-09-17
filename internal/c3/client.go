@@ -305,6 +305,17 @@ func (c *Client) OpenDoor(ctx context.Context, door, seconds int) error {
 	return err
 }
 
+// CloseDoor re-locks a door right away (ControlDevice OUTPUT with a 0 s
+// duration), ending a pulse or a normally-open state the panel started.
+func (c *Client) CloseDoor(ctx context.Context, door int) error {
+	if door < 1 {
+		return fmt.Errorf("c3: door must be >= 1")
+	}
+	payload := []byte{ctlOutput, byte(door), 1, 0, 0}
+	_, err := c.exchange(cmdControl, payload)
+	return err
+}
+
 // SetAux drives an auxiliary output on/off for a duration (0 = latch).
 func (c *Client) SetAux(ctx context.Context, index int, on bool, seconds int) error {
 	dur := 0
