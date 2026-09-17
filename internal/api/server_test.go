@@ -98,7 +98,7 @@ func TestRootServesGymConsole(t *testing.T) {
 	h := newTestServer(t, &fakePanel{}, "")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "نادي المنارة") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "أمد جم") {
 		t.Fatalf("root: %d", rec.Code)
 	}
 }
