@@ -123,7 +123,8 @@ always wins). See [`.env.example`](.env.example) for the annotated list.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PANEL_ADDR` | *(required)* | `host:port` of the C3 panel |
+| `PANEL_TYPE` | `c3` | `c3` (ZKTeco C3) or `rosslare` (Rosslare AC-215, see below) |
+| `PANEL_ADDR` | *(required)* | `host:port` of the C3 panel (or the AC-215's RS-485/TCP adapter) |
 | `PANEL_ID` | `panel-1` | Logical id for logs/events |
 | `IO_TIMEOUT` | `5s` | Per-command panel I/O timeout |
 | `RECONNECT_MIN` / `RECONNECT_MAX` | `1s` / `30s` | Reconnect backoff bounds |
@@ -212,6 +213,25 @@ Reverse-validated against the live panel and documented in
 `AA 01 <cmd> <len:LE16> <data> <crc16:LE> 55`, CRC-16/ARC (poly `0xA001`).
 This firmware uses **session-less** mode; realtime events come from the ASCII
 key-value RTLog (`0x79`), de-duplicated by the panel's record index.
+
+### Rosslare AC-215 (`PANEL_TYPE=rosslare`)
+
+`internal/rosslare` speaks the AC-215's RS-485 protocol through a transparent
+serial-to-TCP adapter (USR-W610: TCP server on 8899, 9600 8N1), decoded from our
+own captures of AxTraxNG; see [`docs/ROSSLARE-PROTOCOL.md`](docs/ROSSLARE-PROTOCOL.md).
+Frame: `FF FF FF 55 <type> <addr> <b2> <b3> <seq> <len> <cmd data>`, then a
+CRC-16/XMODEM (sum8 for identify).
+
+- Works: identify, clock, open door (OUT1 / OUT2 = doors 1 / 2), aux outputs
+  (OUT1A / OUT2A), card enroll / revoke with role, validity dates and per-reader time
+  zone (door 1 = Reader 1 = in, door 2 = Reader 2 = out), live events with in / out,
+  card number and name, de-duplicated by the panel's event number.
+- The panel can't be read back, so enrolled cards and the event cursor live in
+  `ROSSLARE_STATE_PATH`. Start from a panel AxTraxNG has wiped (its slots start at 1).
+- Not supported: params, tables, restart, cancel alarm. `/status` shows the raw
+  status bytes from the event poll.
+- Still to check on a healthy board: the card-code bytes of a refused card, and
+  Sunday's day-of-week value in the clock command.
 
 ## Roadmap
 

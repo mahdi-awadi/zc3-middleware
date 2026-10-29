@@ -7,3 +7,5 @@ events.jsonl
 *.jsonl
 access.json
 release/zc3-middleware-*
+rosslare-state.json
+rosslare-state.json.tmp

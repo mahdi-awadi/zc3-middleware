@@ -17,6 +17,7 @@ import (
 	"github.com/awadi/zk-c3-middleware/internal/api"
 	"github.com/awadi/zk-c3-middleware/internal/c3"
 	"github.com/awadi/zk-c3-middleware/internal/config"
+	"github.com/awadi/zk-c3-middleware/internal/rosslare"
 	"github.com/awadi/zk-c3-middleware/internal/store"
 	"github.com/awadi/zk-c3-middleware/internal/supervisor"
 )
@@ -46,12 +47,25 @@ func run() error {
 	defer stop()
 
 	// Panel client + connection supervisor.
-	panel := c3.New(cfg.PanelAddr,
+	var panel c3.Panel = c3.New(cfg.PanelAddr,
 		c3.WithTimeout(cfg.IOTimeout),
 		c3.WithPollInterval(cfg.EventPollInterval),
 		c3.WithReplayBacklog(cfg.EventReplayBacklog),
 		c3.WithAllowWrites(cfg.AllowWrites),
 	)
+	if cfg.PanelType == "rosslare" {
+		if panel, err = rosslare.New(cfg.PanelAddr,
+			rosslare.WithTimeout(cfg.IOTimeout),
+			rosslare.WithPollInterval(cfg.EventPollInterval),
+			rosslare.WithReplayBacklog(cfg.EventReplayBacklog),
+			rosslare.WithAllowWrites(cfg.AllowWrites),
+			rosslare.WithAddress(cfg.RosslareAddress),
+			rosslare.WithCRC(cfg.RosslareCRC),
+			rosslare.WithStatePath(cfg.RosslareStatePath),
+		); err != nil {
+			return err
+		}
+	}
 
 	srv := api.New(panel, api.Options{
 		APIKey:          cfg.APIKey,

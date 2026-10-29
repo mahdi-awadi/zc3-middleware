@@ -15,9 +15,15 @@ import (
 // Config is the fully-resolved runtime configuration.
 type Config struct {
 	// Panel
+	PanelType string        // c3 (ZKTeco C3, default) | rosslare (Rosslare AC-215)
 	PanelAddr string        // host:port of the C3 panel
 	PanelID   string        // logical id for this panel (labels events/metrics)
 	IOTimeout time.Duration // per-command panel I/O timeout
+
+	// Rosslare AC-215 (PANEL_TYPE=rosslare): PANEL_ADDR is the RS-485/TCP adapter.
+	RosslareAddress   int    // panel bus address, DIP switches 4-8 (1..32)
+	RosslareCRC       bool   // CRC-16 check on normal commands (false = 1-byte sum)
+	RosslareStatePath string // JSON record of enrolled cards + event cursor
 
 	// Resilience
 	ReconnectMin time.Duration // initial reconnect backoff
@@ -58,7 +64,11 @@ func Load() (Config, error) {
 	}
 
 	c := Config{
+		PanelType:          getenv("PANEL_TYPE", "c3"),
 		PanelAddr:          getenv("PANEL_ADDR", ""),
+		RosslareAddress:    getint("ROSSLARE_ADDRESS", 1),
+		RosslareCRC:        getbool("ROSSLARE_CRC", true),
+		RosslareStatePath:  getenv("ROSSLARE_STATE_PATH", "rosslare-state.json"),
 		PanelID:            getenv("PANEL_ID", "panel-1"),
 		IOTimeout:          getdur("IO_TIMEOUT", 5*time.Second),
 		ReconnectMin:       getdur("RECONNECT_MIN", 1*time.Second),
@@ -90,7 +100,16 @@ func (c Config) validate() error {
 	if !strings.Contains(c.PanelAddr, ":") {
 		return fmt.Errorf("config: PANEL_ADDR must be host:port, got %q", c.PanelAddr)
 	}
-	if c.DoorDefaultSeconds <= 0 || c.DoorDefaultSeconds > 255 {
+	switch c.PanelType {
+	case "c3":
+	case "rosslare":
+		if c.RosslareAddress < 1 || c.RosslareAddress > 32 {
+			return fmt.Errorf("config: ROSSLARE_ADDRESS must be 1..32, got %d", c.RosslareAddress)
+		}
+	default:
+		return fmt.Errorf("config: PANEL_TYPE must be c3|rosslare, got %q", c.PanelType)
+	}
+	if c.DoorDefaultSeconds <= 0|| c.DoorDefaultSeconds > 255 {
 		return fmt.Errorf("config: DOOR_DEFAULT_SECONDS must be 1..255, got %d", c.DoorDefaultSeconds)
 	}
 	switch c.LogLevel {
