@@ -24,6 +24,7 @@ var ErrUnsupported = errors.New("rosslare: not supported by the AC-215 driver")
 type Client struct {
 	addr          string
 	panelAddr     byte
+	auto          bool // find panelAddr by scanning the bus at connect
 	timeout       time.Duration
 	pollInterval  time.Duration
 	loc           *time.Location
@@ -64,8 +65,11 @@ func WithPollInterval(d time.Duration) Option { return func(c *Client) { c.pollI
 // WithLocation sets the timezone of the panel clock.
 func WithLocation(l *time.Location) Option { return func(c *Client) { c.loc = l } }
 
-// WithAddress sets the panel's bus address (DIP switches 4-8), 1..32.
-func WithAddress(n int) Option { return func(c *Client) { c.panelAddr = byte(n) } }
+// WithAddress sets the panel's bus address (DIP switches 4-8), 1..32, or 0 to
+// find it: Connect then asks every address and uses the first panel that answers.
+func WithAddress(n int) Option {
+	return func(c *Client) { c.panelAddr, c.auto = byte(max(n, 1)), n == 0 }
+}
 
 // WithCRC picks the check for normal commands: CRC-16 (true, what AxTraxNG
 // 27.7 sends) or the 1-byte sum. Identify always uses the sum.
@@ -104,16 +108,36 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	c.conn, c.r = conn, bufio.NewReader(conn)
 	// AnswerFirmVer: firmware name (16), loader name (16), last event number (2), 4 unknown bytes.
-	data, err := c.exchangeLocked(cmdRequestFirmVer, nil, ansFirmVer)
+	var data []byte
+	if c.auto {
+		// Address 0 = find the panel: the last one found first, then every bus address.
+		order := []byte{c.panelAddr}
+		for a := byte(1); a <= 32; a++ {
+			if a != c.panelAddr {
+				order = append(order, a)
+			}
+		}
+		for _, a := range order {
+			if data, err = c.exchangeTo(a, cmdRequestFirmVer, nil, ansFirmVer, probeTimeout, 1); err == nil {
+				c.panelAddr = a
+				break
+			}
+		}
+	} else {
+		data, err = c.exchangeLocked(cmdRequestFirmVer, nil, ansFirmVer)
+	}
 	if err == nil && len(data) < 34 {
 		err = fmt.Errorf("short answer % x", data)
 	}
 	if err != nil {
 		conn.Close()
 		c.conn = nil
+		if c.auto {
+			return fmt.Errorf("rosslare: no panel answered on any bus address 1-32 of %s: %w", c.addr, err)
+		}
 		return fmt.Errorf("rosslare: identify panel %d: %w", c.panelAddr, err)
 	}
-	c.firmware = cstr(data[:16]) + " / " + cstr(data[16:32])
+	c.firmware = idName(data)
 	c.startEvent = (int(binary.BigEndian.Uint16(data[32:34])) + 1) % eventNumbers
 	if c.replayBacklog && saved >= 0 {
 		c.startEvent = saved
@@ -139,31 +163,36 @@ func (c *Client) exchange(cmd byte, data []byte, want byte) ([]byte, error) {
 	return c.exchangeLocked(cmd, data, want)
 }
 
-// exchangeLocked sends one command and returns the data of the answer whose
-// command byte is want. A timeout or another answer (a plain 80 to RequestEvents
-// means "busy") is retried with the same seq, 3 tries in all like AxTraxNG.
-// Caller holds c.mu.
+// exchangeLocked sends one command to the panel and returns the data of the
+// answer whose command byte is want, 3 tries like AxTraxNG. Caller holds c.mu.
 func (c *Client) exchangeLocked(cmd byte, data []byte, want byte) ([]byte, error) {
+	return c.exchangeTo(c.panelAddr, cmd, data, want, c.timeout, 3)
+}
+
+// exchangeTo sends one command to bus address addr. A timeout or another answer
+// (a plain 80 to RequestEvents means "busy") is retried with the same seq.
+// Caller holds c.mu.
+func (c *Client) exchangeTo(addr, cmd byte, data []byte, want byte, timeout time.Duration, tries int) ([]byte, error) {
 	if c.conn == nil {
 		return nil, errors.New("rosslare: not connected")
 	}
 	c.seq++
 	crc := c.crc && cmd != cmdRequestFirmVer
-	req := encode(c.panelAddr, c.seq, cmd, data, crc)
+	req := encode(addr, c.seq, cmd, data, crc)
 	var last error
-	for try := 0; try < 3; try++ {
-		_ = c.conn.SetDeadline(time.Now().Add(c.timeout))
+	for try := 0; try < tries; try++ {
+		_ = c.conn.SetDeadline(time.Now().Add(timeout))
 		if _, err := c.conn.Write(req); err != nil {
 			return nil, fmt.Errorf("rosslare: write: %w", err)
 		}
-		f, err := c.readAnswer(crc)
+		f, err := c.readAnswer(addr, crc)
 		switch {
 		case err == nil && f.cmd == want:
 			return f.data, nil
 		case err == nil:
 			last = fmt.Errorf("rosslare: command 0x%02X answered 0x%02X, want 0x%02X", cmd, f.cmd, want)
 		case isTimeout(err):
-			last = fmt.Errorf("rosslare: command 0x%02X: no answer from panel %d", cmd, c.panelAddr)
+			last = fmt.Errorf("rosslare: command 0x%02X: no answer from panel %d", cmd, addr)
 		default:
 			return nil, fmt.Errorf("rosslare: read: %w", err)
 		}
@@ -171,12 +200,12 @@ func (c *Client) exchangeLocked(cmd byte, data []byte, want byte) ([]byte, error
 	return nil, last
 }
 
-// readAnswer skips frames that are not this panel's answer to the current seq
+// readAnswer skips frames that are not addr's answer to the current seq
 // (late answers to an earlier try, other panels on the bus).
-func (c *Client) readAnswer(crc bool) (frame, error) {
+func (c *Client) readAnswer(addr byte, crc bool) (frame, error) {
 	for {
 		f, err := readFrame(c.r, crc)
-		if err != nil || (f.typ == typeAnswer && f.addr == c.panelAddr && f.seq == c.seq) {
+		if err != nil || (f.typ == typeAnswer && f.addr == addr && f.seq == c.seq) {
 			return f, err
 		}
 	}
@@ -188,6 +217,96 @@ func isTimeout(err error) bool {
 }
 
 func cstr(b []byte) string { return strings.TrimRight(string(b), "\x00 ") }
+
+// idName is "firmware / loader" from an AnswerFirmVer.
+func idName(data []byte) string { return cstr(data[:16]) + " / " + cstr(data[16:32]) }
+
+// ---- discovery ----
+
+// probeTimeout is the wait for one identify while scanning the bus: the real
+// AC-215 answered in about 105 ms through the W610, so 32 addresses take ~13 s.
+var probeTimeout = 400 * time.Millisecond
+
+// Adapter is a USR serial-to-network adapter that answered the discovery packet.
+type Adapter struct {
+	IP    string `json:"ip"`
+	MAC   string `json:"mac"`
+	Model string `json:"model"`
+}
+
+// Found is a panel that answered identify (RequestFirmVer) on the bus.
+type Found struct {
+	Address  int    `json:"address"`
+	Firmware string `json:"firmware"`
+	ReplyMs  int    `json:"reply_ms"`
+}
+
+// Discovery is what Discover saw, step by step: adapters on the network, the
+// adapter port the bus was scanned through, and the panels on that bus.
+type Discovery struct {
+	Adapters []Adapter `json:"adapters"`
+	Bus      string    `json:"bus"`
+	Panels   []Found   `json:"panels"`
+	InUse    int       `json:"in_use"` // bus address this middleware talks to
+}
+
+// findAdapters sends USR's discovery packet "www.usr.cn" to UDP 48899, as a
+// broadcast and straight to host, and collects the "ip,mac,model" answers.
+func findAdapters(host string, wait time.Duration) []Adapter {
+	conn, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	for _, h := range []string{"255.255.255.255", host} {
+		if ip := net.ParseIP(h); ip != nil {
+			_, _ = conn.WriteToUDP([]byte("www.usr.cn"), &net.UDPAddr{IP: ip, Port: 48899})
+		}
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(wait))
+	out := []Adapter{}
+	seen := map[string]bool{}
+	buf := make([]byte, 512)
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return out
+		}
+		p := strings.SplitN(strings.TrimSpace(string(buf[:n])), ",", 3)
+		if len(p) < 2 || seen[p[0]] || net.ParseIP(p[0]) == nil {
+			continue
+		}
+		seen[p[0]] = true
+		a := Adapter{IP: p[0], MAC: p[1]}
+		if len(p) == 3 {
+			a.Model = strings.TrimSpace(p[2])
+		}
+		out = append(out, a)
+	}
+}
+
+// Discover runs AxTraxNG's "Find Panels" method: find the adapters, then send
+// identify to every bus address 1-32 through the connected adapter. Each probe
+// takes the bus on its own, so event polling and door commands go on in between.
+func (c *Client) Discover(ctx context.Context) (any, error) {
+	host, _, _ := net.SplitHostPort(c.addr)
+	d := Discovery{Adapters: findAdapters(host, time.Second), Bus: c.addr, Panels: []Found{}}
+	for a := byte(1); a <= 32 && ctx.Err() == nil; a++ {
+		start := time.Now()
+		c.mu.Lock()
+		data, err := c.exchangeTo(a, cmdRequestFirmVer, nil, ansFirmVer, probeTimeout, 1)
+		d.InUse = int(c.panelAddr)
+		connected := c.conn != nil
+		c.mu.Unlock()
+		if !connected {
+			return nil, errors.New("rosslare: not connected to the adapter")
+		}
+		if err == nil && len(data) >= 32 {
+			d.Panels = append(d.Panels, Found{Address: int(a), Firmware: idName(data), ReplyMs: int(time.Since(start).Milliseconds())})
+		}
+	}
+	return d, ctx.Err()
+}
 
 // ---- capabilities ----
 

@@ -69,17 +69,18 @@ func TestRecordsMatchAxTraxNG(t *testing.T) {
 // fakePanel answers like the real AC-215 / fakepanel.py and records every request.
 type fakePanel struct {
 	ln     net.Listener
+	addr   byte // bus address it answers on; 0 = any
 	mu     sync.Mutex
 	got    []frame
 	events [][]byte // queued AnswerEvents payloads; then "C1 00"
 }
 
-func startFake(t *testing.T) *fakePanel {
+func startFake(t *testing.T, addr byte) *fakePanel {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &fakePanel{ln: ln}
+	p := &fakePanel{ln: ln, addr: addr}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
 		conn, err := ln.Accept()
@@ -97,6 +98,9 @@ func startFake(t *testing.T) *fakePanel {
 			f, err := readFrame(r, crc)
 			if err != nil {
 				return
+			}
+			if p.addr != 0 && f.addr != p.addr {
+				continue // another address: silence, like an empty slot on the bus
 			}
 			p.mu.Lock()
 			p.got = append(p.got, f)
@@ -135,8 +139,32 @@ func (p *fakePanel) requests(cmd byte) (out [][]byte) {
 	return out
 }
 
+func TestDiscovery(t *testing.T) {
+	probeTimeout = 30 * time.Millisecond
+	p := startFake(t, 3)
+	cl, err := New(p.ln.Addr().String(), WithAddress(0), WithTimeout(time.Second), WithStatePath(filepath.Join(t.TempDir(), "s.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := cl.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := cl.DeviceInfo(ctx); info.DeviceName != "AC-215 #3" {
+		t.Fatalf("connect found %q, want the panel on address 3", info.DeviceName)
+	}
+	res, err := cl.Discover(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := res.(Discovery)
+	if len(d.Panels) != 1 || d.Panels[0].Address != 3 || d.InUse != 3 || d.Panels[0].Firmware != "ac215v04_08_23 / btl_ac225v_01_02" {
+		t.Fatalf("Discover = %+v", d)
+	}
+}
+
 func TestDriverAgainstFakePanel(t *testing.T) {
-	p := startFake(t)
+	p := startFake(t, 0)
 	// Two records in one answer: a granted pass on Reader 2 (card slot 1) and a
 	// refused W26 card 123/4660 on Reader 1, event numbers 0x11F4 and 0x11F5.
 	hdr := make([]byte, 16)

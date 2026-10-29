@@ -75,6 +75,37 @@ paths:
               schema: { $ref: "#/components/schemas/DeviceInfo" }
         "502": { $ref: "#/components/responses/PanelError" }
 
+  /discover:
+    post:
+      tags: [Device]
+      summary: Find adapters and panels (Rosslare only)
+      description: >
+        Sends "www.usr.cn" to UDP 48899 (USR adapters answer with ip,mac), then
+        RequestFirmVer to RS-485 bus addresses 1-32 through PANEL_ADDR. Takes
+        about 13 s; event polling and door commands continue between probes.
+      responses:
+        "200":
+          description: What answered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  adapters:
+                    type: array
+                    items:
+                      type: object
+                      properties: { ip: { type: string }, mac: { type: string }, model: { type: string } }
+                  bus: { type: string, description: "adapter host:port that was scanned" }
+                  panels:
+                    type: array
+                    items:
+                      type: object
+                      properties: { address: { type: integer }, firmware: { type: string }, reply_ms: { type: integer } }
+                  in_use: { type: integer, description: "bus address the middleware talks to" }
+        "501": { description: The panel driver cannot discover (C3) }
+        "502": { $ref: "#/components/responses/PanelError" }
+
   /params:
     get:
       tags: [Device]

@@ -143,6 +143,30 @@
     </div>
     <div class="warn-banner" id="wbanner"></div>
 
+    <!-- DISCOVER -->
+    <section class="page" data-page="discover">
+      <div class="head"><div><h1>Find the door controller</h1><p>The same steps as AxTraxNG's "Find Panels", run live from this middleware.</p></div>
+        <button class="btn pri" id="disc-run">Run discovery</button>
+      </div>
+      <div class="grid g3">
+        <div class="card"><h3>1 · Adapter on the network</h3>
+          <p class="hint">Sends <span class="mono">www.usr.cn</span> to UDP port 48899, as a broadcast and to the configured host. Every USR serial adapter (USR-W610) answers with its IP and MAC.</p>
+          <div id="disc-1"><div class="empty">Not run yet.</div></div></div>
+        <div class="card"><h3>2 · Open its RS-485 port</h3>
+          <p class="hint">Connects over TCP to <span class="mono" id="disc-bus">PANEL_ADDR</span>, the adapter's transparent serial port (9600 8N1, wired to L1/L2 of the panel).</p>
+          <div id="disc-2"><div class="empty">Not run yet.</div></div></div>
+        <div class="card"><h3>3 · Ask every bus address</h3>
+          <p class="hint">Sends <span class="mono">6A RequestFirmVer</span> to bus addresses 1–32 (the panel's DIP switches 4–8). A panel answers <span class="mono">EB</span> with its firmware name.</p>
+          <div id="disc-3"><div class="empty">Not run yet.</div></div></div>
+      </div>
+      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Panels found</h3>
+      <div class="tblwrap"><table><thead><tr><th>Bus address</th><th>Firmware / loader</th><th>Reply</th><th>Status</th></tr></thead><tbody id="disc-found"><tr><td class="empty" colspan="4">Run discovery to scan the bus.</td></tr></tbody></table></div>
+      <div class="row" style="margin-top:14px;justify-content:flex-start">
+        <button class="btn" style="flex:none" onclick="go('cards')">Next: add users →</button>
+        <button class="btn" style="flex:none" onclick="go('attendance')">Then: attendance →</button>
+      </div>
+    </section>
+
     <!-- OVERVIEW -->
     <section class="page" data-page="overview">
       <div class="head"><div><h1>Overview</h1><p>Panel identity, live status, and service metrics.</p></div></div>
@@ -164,6 +188,24 @@
       </div>
       <div style="margin-bottom:10px"><span class="stream-dot" id="sdot"></span> <span id="sstat" class="mono" style="font-size:12px;color:var(--faint)">stopped</span></div>
       <div class="tblwrap"><table><thead><tr><th>Time</th><th>Card</th><th>Name</th><th>Reader</th><th>Dir</th><th>Event</th></tr></thead><tbody id="evbody"><tr><td class="empty" colspan="6">Start the stream, then swipe a card.</td></tr></tbody></table></div>
+    </section>
+
+    <!-- ATTENDANCE -->
+    <section class="page" data-page="attendance">
+      <div class="head">
+        <div><h1>Attendance</h1><p>Who came in, who left, and when, from the entry and exit readers.</p></div>
+        <div class="row" style="flex:none">
+          <input type="date" id="at-day" style="width:auto">
+          <button class="btn" id="at-load">Reload</button>
+          <button class="btn sm" id="at-csv-sum">CSV summary</button>
+          <button class="btn sm" id="at-csv-log">CSV log</button>
+        </div>
+      </div>
+      <div class="grid g4" id="at-stats"></div>
+      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">People</h3>
+      <div class="tblwrap"><table><thead><tr><th>Name</th><th>Card</th><th>First in</th><th>Last out</th><th>Passes</th><th>Time inside</th><th>Now</th></tr></thead><tbody id="at-people"></tbody></table></div>
+      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Entry / exit log</h3>
+      <div class="tblwrap"><table><thead><tr><th>Time</th><th>Name</th><th>Card</th><th>Dir</th><th>Result</th></tr></thead><tbody id="at-log"></tbody></table></div>
     </section>
 
     <!-- CARDS -->
@@ -349,13 +391,34 @@ async function api(path,opts={}){
 }
 
 /* ---- navigation ---- */
-const PAGES=[['overview','▤','Overview'],['live','◉','Live events'],['cards','▦','Cards & roles'],
+const PAGES=[['discover','⌕','Discover'],['overview','▤','Overview'],['live','◉','Live events'],['attendance','◷','Attendance'],['cards','▦','Cards & roles'],
   ['access','⏱','Access rules'],['doors','⊞','Doors'],['tables','☰','Data tables'],['device','⚙','Device'],['settings','⚙','Settings']];
 const nav=$('#nav');
 PAGES.forEach(([id,ico,label])=>{const b=document.createElement('button');b.dataset.go=id;b.innerHTML=`<span class="ico">${ico}</span>${label}`;b.onclick=()=>go(id);nav.append(b);});
 function go(id){$$('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===id));$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.go===id));location.hash=id;
   if(id==='overview')loadOverview(); if(id==='cards')loadCards(); if(id==='tables')loadTables(); if(id==='doors')loadDoorStatus(); if(id==='access')loadAccess();
-  if(id!=='access')stopDecisionPoll();}
+  if(id!=='access')stopDecisionPoll();
+  clearInterval(atTimer); if(id==='attendance'){loadAttendance();atTimer=setInterval(loadAttendance,5000);}
+  if(id==='discover'&&!discRan)runDiscover();}
+
+/* ---- discover: adapters on the network, then every RS-485 bus address ---- */
+let discRan=false;
+async function runDiscover(){
+  discRan=true;$('#disc-run').disabled=true;
+  $('#disc-1').innerHTML='<div class="empty">Asking the network…</div>';$('#disc-3').innerHTML='<div class="empty">Waiting…</div>';
+  try{
+    const cfg=await api('/config');
+    $('#disc-2').innerHTML=cfg.panel_connected?'<span class="ev-in">● Connected</span>':'<span class="ev-deny">● Not connected yet</span>';
+    $('#disc-3').innerHTML='<div class="empty">Asking addresses 1–32 (about 15 s)…</div>';
+    const d=await api('/discover',{method:'POST'});
+    $('#disc-bus').textContent=d.bus;
+    $('#disc-1').innerHTML=d.adapters.length?d.adapters.map(a=>`<div class="pill" style="margin:2px 0">${esc(a.ip)} · ${esc(a.mac)}${a.model?' · '+esc(a.model):''}</div>`).join('<br>')
+      :'<div class="empty">No adapter answered (it may be on another subnet). The configured address is used.</div>';
+    $('#disc-3').innerHTML=`<span class="${d.panels.length?'ev-in':'ev-deny'}">● ${d.panels.length} panel${d.panels.length===1?'':'s'} answered</span>`;
+    $('#disc-found').innerHTML=d.panels.length?d.panels.map(p=>`<tr><td class="mono">${p.address}</td><td class="mono">${esc(p.firmware)}</td><td class="mono">${p.reply_ms} ms</td><td>${p.address===d.in_use?'<span class="ev-in">● in use</span>':'found'}</td></tr>`).join('')
+      :'<tr><td class="empty" colspan="4">No panel answered. Check L1/L2 (swap them if the TX LED stays dark), the DIP baud switches and the adapter\'s 9600 8N1 setting.</td></tr>';
+  }catch(e){$('#disc-3').innerHTML='<div class="empty">'+esc(e.message)+'</div>';$('#disc-1').innerHTML='<div class="empty">—</div>';}
+  $('#disc-run').disabled=false;}
 
 /* ---- overview ---- */
 async function loadOverview(){
@@ -452,6 +515,49 @@ function addEvent(ev,names){
   tr.innerHTML=`<td class="mono">${esc(t)}</td><td class="mono">${esc(ev.card_no||'—')}</td><td>${esc(names[ev.card_no]||'')}</td><td class="mono">${esc(ev.reader??'—')}</td><td>${dir}</td><td class="${denied?'ev-deny':''}">${esc(ev.event_name||ev.event_type)}</td>`;
   tb.prepend(tr);while(tb.children.length>200)tb.lastChild.remove();
 }
+
+/* ---- attendance: granted in/out passes per person for one day, from the audit log ---- */
+const DENIED=/Denied|Unregistered|Illegal|Expired|Error/i;
+let atTimer=null, AT={people:[],log:[],day:''};
+async function dayEvents(day){ // history is newest first, 1000 per page
+  let out=[];
+  for(let off=0;off<10000;off+=1000){
+    const page=await api('/events/history?limit=1000&offset='+off);
+    out=out.concat(page.filter(e=>(e.time||'').slice(0,10)===day));
+    if(page.length<1000||(page[page.length-1].time||'')<day)break;
+  }
+  return out.filter(e=>e.in_out&&e.card_no&&e.card_no!=='0');
+}
+function hms(ms){const m=Math.round(ms/60000);return m<1?'—':Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m';}
+async function loadAttendance(){
+  const day=$('#at-day').value;
+  try{
+    const [users,evs]=await Promise.all([api('/users').catch(()=>[]),dayEvents(day)]);
+    const names={};users.forEach(u=>names[u.card_no]=u.name);
+    const log=evs.slice().sort((a,b)=>a.time<b.time?-1:1), P={};
+    let ins=0,outs=0,denied=0;
+    for(const e of log){
+      if(DENIED.test(e.event_name||'')){denied++;continue;}
+      const p=P[e.card_no]??={name:names[e.card_no]||'',card:e.card_no,first:'',last:'',passes:0,inside:0,since:null,now:''};
+      const t=new Date(e.time).getTime();p.passes++;
+      if(e.in_out==='in'){ins++;if(!p.first)p.first=e.time.slice(11,19);if(p.since===null)p.since=t;p.now='in';}
+      else{outs++;p.last=e.time.slice(11,19);if(p.since!==null){p.inside+=t-p.since;p.since=null;}p.now='out';}
+    }
+    const today=day===new Date().toLocaleDateString('en-CA');
+    const people=Object.values(P).sort((a,b)=>a.name.localeCompare(b.name));
+    people.forEach(p=>{if(p.since!==null&&today)p.inside+=Date.now()-p.since;});
+    AT={people,log,day,names};
+    $('#at-stats').innerHTML=[['People',people.length],['Inside now',today?people.filter(p=>p.now==='in').length:'—'],['Entries · exits',ins+' · '+outs],['Refused',denied]]
+      .map(([l,n])=>`<div class="card stat"><div class="n">${esc(n)}</div><div class="l">${l}</div></div>`).join('');
+    $('#at-people').innerHTML=people.length?people.map(p=>`<tr><td>${esc(p.name||'(unknown card)')}</td><td class="mono">${esc(p.card)}</td><td class="mono">${esc(p.first||'—')}</td><td class="mono">${esc(p.last||'—')}</td><td class="mono">${p.passes}</td><td class="mono">${hms(p.inside)}</td><td>${p.now==='in'?'<span class="ev-in">▸ inside</span>':'<span class="ev-out">◂ left</span>'}</td></tr>`).join('')
+      :'<tr><td class="empty" colspan="7">No entries or exits on this day.</td></tr>';
+    $('#at-log').innerHTML=log.length?log.slice().reverse().slice(0,300).map(e=>{const d=DENIED.test(e.event_name||'');
+      return `<tr><td class="mono">${esc(e.time.slice(11,19))}</td><td>${esc(names[e.card_no]||'')}</td><td class="mono">${esc(e.card_no)}</td><td>${e.in_out==='in'?'<span class="ev-in">▸ in</span>':'<span class="ev-out">◂ out</span>'}</td><td class="${d?'ev-deny':''}">${esc(d?e.event_name:'granted')}</td></tr>`;}).join('')
+      :'<tr><td class="empty" colspan="5">Nothing recorded yet.</td></tr>';
+  }catch(e){toast(e.message,'err');}
+}
+function csv(file,rows){const s=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+s],{type:'text/csv'}));a.download=file;a.click();URL.revokeObjectURL(a.href);}
 
 /* ---- access rules ---- */
 const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -563,12 +669,19 @@ $('#s-save').onclick=()=>{store.base=$('#s-base').value.trim();store.k=$('#s-key
 $('#reloadaccess').onclick=loadAccess; $('#newrole').onclick=clearRole; $('#clearrole').onclick=clearRole;
 $('#addwindow').onclick=()=>addWindowRow(); $('#saverole').onclick=saveRole; $('#savepolicy').onclick=savePolicy;
 $('#enf-on').onchange=savePolicy;
+$('#disc-run').onclick=runDiscover;
+$('#at-day').value=new Date().toLocaleDateString('en-CA'); $('#at-day').onchange=loadAttendance; $('#at-load').onclick=loadAttendance;
+$('#at-csv-sum').onclick=()=>csv('attendance-'+AT.day+'.csv',[['date','name','card','first_in','last_out','passes','time_inside'],...AT.people.map(p=>[AT.day,p.name,p.card,p.first,p.last,p.passes,hms(p.inside)])]);
+$('#at-csv-log').onclick=()=>csv('passes-'+AT.day+'.csv',[['date','time','name','card','direction','result'],...AT.log.map(e=>[AT.day,e.time.slice(11,19),AT.names[e.card_no]||'',e.card_no,e.in_out,DENIED.test(e.event_name||'')?e.event_name:'granted'])]);
 
 /* init */
 const th=localStorage.getItem('c3_theme');if(th)document.documentElement.setAttribute('data-theme',th);
 $('#s-base').value=store.base;$('#s-key').value=store.k;
-go(location.hash.slice(1)||'overview');
+const startPage=location.hash.slice(1);
+go(startPage||'overview');
 ping();refreshRoleOptions();setInterval(ping,10000);
+api('/device').then(d=>{$$('#c-doors input').forEach(i=>{if(+i.value>(d.doors||4))i.closest('label').remove();}); // offer only the panel's doors
+  if(!startPage&&/^AC-215/.test(d.device_name||''))go('discover');}).catch(()=>{}); // a Rosslare panel starts at discovery
 </script>
 </body>
 </html>

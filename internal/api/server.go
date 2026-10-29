@@ -4,6 +4,7 @@
 //
 //	GET    /healthz                 liveness
 //	GET    /device                  panel identity/params
+//	POST   /discover                find adapters + panels on the bus (Rosslare)
 //	GET    /params?keys=a,b         read device params
 //	PUT    /params                  {"k":"v",...} set device params
 //	POST   /time/sync               sync panel clock to server time
@@ -17,6 +18,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -94,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("GET /device", s.handleDevice)
+	mux.HandleFunc("POST /discover", s.handleDiscover)
 	mux.HandleFunc("GET /params", s.handleGetParams)
 	mux.HandleFunc("PUT /params", s.handleSetParams)
 	mux.HandleFunc("POST /time/sync", s.handleTimeSync)
@@ -184,6 +187,19 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 	info, err := s.panel.DeviceInfo(r.Context())
 	respond(w, info, err)
+}
+
+// handleDiscover scans for adapters and panels, for drivers that can (Rosslare).
+func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
+	d, ok := s.panel.(interface {
+		Discover(context.Context) (any, error)
+	})
+	if !ok {
+		writeJSON(w, 501, map[string]string{"error": "discovery is supported for Rosslare panels only"})
+		return
+	}
+	res, err := d.Discover(r.Context())
+	respond(w, res, err)
 }
 
 func (s *Server) handleGetParams(w http.ResponseWriter, r *http.Request) {

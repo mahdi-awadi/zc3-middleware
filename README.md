@@ -104,8 +104,11 @@ A full admin UI is **embedded in the binary** and served same-origin at
 **<http://localhost:8080/ui>** (the root `/` redirects there). No build step, no
 separate deploy. It manages every part of the API:
 
+- **Discover** — find the adapter and the panels on its RS-485 bus, step by step (Rosslare)
 - **Overview** — device identity, live door status, service metrics
 - **Live events** — realtime swipe stream (SSE)
+- **Attendance** — per person per day: first in, last out, passes, time inside, who is
+  inside now, and the entry / exit log; CSV export
 - **Cards & roles** — enrol / revoke, assign role (student / teacher / administrator / custom)
 - **Access rules** — create roles with time windows, holidays, and days; live decisions
 - **Doors** — pulse relays, aux outputs, cancel alarm, live status
@@ -149,6 +152,7 @@ in [`docs/api.html`](docs/api.html) (open locally, or import the spec into
 | `GET` | `/readyz` | Readiness (panel link state) |
 | `GET` | `/metrics` | Prometheus metrics |
 | `GET` | `/device` | Panel identity / firmware |
+| `POST` | `/discover` | Find adapters + panels on the RS-485 bus (Rosslare) |
 | `GET` | `/status` | Live door sensor / relay / alarm state |
 | `GET` | `/params?keys=a,b` | Read device parameters |
 | `PUT` | `/params` | Set device parameters |
@@ -226,6 +230,9 @@ CRC-16/XMODEM (sum8 for identify).
   (OUT1A / OUT2A), card enroll / revoke with role, validity dates and per-reader time
   zone (door 1 = Reader 1 = in, door 2 = Reader 2 = out), live events with in / out,
   card number and name, de-duplicated by the panel's event number.
+- Discovery: with `ROSSLARE_ADDRESS=0` (default) the middleware asks bus addresses
+  1-32 at connect and uses the first panel that answers; `POST /discover` (and the
+  console's Discover page) also lists the USR adapters answering UDP 48899.
 - The panel can't be read back, so enrolled cards and the event cursor live in
   `ROSSLARE_STATE_PATH`. Start from a panel AxTraxNG has wiped (its slots start at 1).
 - Not supported: params, tables, restart, cancel alarm. `/status` shows the raw

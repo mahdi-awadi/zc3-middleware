@@ -21,7 +21,7 @@ type Config struct {
 	IOTimeout time.Duration // per-command panel I/O timeout
 
 	// Rosslare AC-215 (PANEL_TYPE=rosslare): PANEL_ADDR is the RS-485/TCP adapter.
-	RosslareAddress   int    // panel bus address, DIP switches 4-8 (1..32)
+	RosslareAddress   int    // panel bus address, DIP switches 4-8 (1..32); 0 = find it on the bus
 	RosslareCRC       bool   // CRC-16 check on normal commands (false = 1-byte sum)
 	RosslareStatePath string // JSON record of enrolled cards + event cursor
 
@@ -66,7 +66,7 @@ func Load() (Config, error) {
 	c := Config{
 		PanelType:          getenv("PANEL_TYPE", "c3"),
 		PanelAddr:          getenv("PANEL_ADDR", ""),
-		RosslareAddress:    getint("ROSSLARE_ADDRESS", 1),
+		RosslareAddress:    getint("ROSSLARE_ADDRESS", 0),
 		RosslareCRC:        getbool("ROSSLARE_CRC", true),
 		RosslareStatePath:  getenv("ROSSLARE_STATE_PATH", "rosslare-state.json"),
 		PanelID:            getenv("PANEL_ID", "panel-1"),
@@ -103,8 +103,8 @@ func (c Config) validate() error {
 	switch c.PanelType {
 	case "c3":
 	case "rosslare":
-		if c.RosslareAddress < 1 || c.RosslareAddress > 32 {
-			return fmt.Errorf("config: ROSSLARE_ADDRESS must be 1..32, got %d", c.RosslareAddress)
+		if c.RosslareAddress < 0 || c.RosslareAddress > 32 {
+			return fmt.Errorf("config: ROSSLARE_ADDRESS must be 0 (find it) or 1..32, got %d", c.RosslareAddress)
 		}
 	default:
 		return fmt.Errorf("config: PANEL_TYPE must be c3|rosslare, got %q", c.PanelType)
