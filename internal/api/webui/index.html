@@ -3,383 +3,546 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C3 Middleware — Console</title>
+<title>Access Console</title>
 <style>
   :root{
-    --bg:#f4f6f8; --surface:#fff; --surface-2:#eef1f5; --border:#d9dee5; --border-strong:#c4cbd4;
-    --text:#1a212b; --dim:#58616f; --faint:#889; --accent:#b96b13; --accent-ink:#8a4f0c; --accent-soft:rgba(185,107,19,.10);
-    --ok:#1c8a6f; --warn:#a9711a; --err:#bb392c; --info:#285fb4;
-    --code-bg:#f1efec; --shadow:0 1px 2px rgba(20,30,45,.05),0 8px 24px -18px rgba(20,30,45,.35);
-    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --chrome:#e8ebef; --chrome-2:#f3f5f7; --panel:#fff; --line:#c3c9d1; --line-2:#dfe3e8;
+    --text:#1c2128; --muted:#5b6471; --faint:#8a929d; --accent:#1f5fa3; --accent-2:#174a80;
+    --sel:#dbe7f6; --zebra:#f8f9fb; --ok:#1c7a43; --warn:#946400; --err:#b42318;
+    --mono:Consolas,"Cascadia Mono",ui-monospace,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
   }
-  @media (prefers-color-scheme:dark){:root{
-    --bg:#0f131a; --surface:#161b23; --surface-2:#1d232d; --border:#29313d; --border-strong:#3a4453;
-    --text:#e7eaf0; --dim:#9aa4b3; --faint:#6b7686; --accent:#f0a445; --accent-ink:#f6bd73; --accent-soft:rgba(240,164,69,.13);
-    --ok:#35bd97; --warn:#e2ac4d; --err:#e76c5d; --info:#5f9bf1; --code-bg:#12161d;
-    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px -20px rgba(0,0,0,.7);
-  }}
-  :root[data-theme="light"]{--bg:#f4f6f8;--surface:#fff;--surface-2:#eef1f5;--border:#d9dee5;--border-strong:#c4cbd4;--text:#1a212b;--dim:#58616f;--faint:#889;--accent:#b96b13;--accent-ink:#8a4f0c;--accent-soft:rgba(185,107,19,.10);--ok:#1c8a6f;--warn:#a9711a;--err:#bb392c;--info:#285fb4;--code-bg:#f1efec;--shadow:0 1px 2px rgba(20,30,45,.05),0 8px 24px -18px rgba(20,30,45,.35);}
-  :root[data-theme="dark"]{--bg:#0f131a;--surface:#161b23;--surface-2:#1d232d;--border:#29313d;--border-strong:#3a4453;--text:#e7eaf0;--dim:#9aa4b3;--faint:#6b7686;--accent:#f0a445;--accent-ink:#f6bd73;--accent-soft:rgba(240,164,69,.13);--ok:#35bd97;--warn:#e2ac4d;--err:#e76c5d;--info:#5f9bf1;--code-bg:#12161d;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 30px -20px rgba(0,0,0,.7);}
-
+  :root[data-theme="dark"]{
+    --chrome:#22262c; --chrome-2:#2a2f36; --panel:#1a1e24; --line:#3b424d; --line-2:#2e343d;
+    --text:#e1e5eb; --muted:#a2abb7; --faint:#7b8492; --accent:#4f8fd8; --accent-2:#6ba3e2;
+    --sel:#24384f; --zebra:#1e2329; --ok:#4cb67a; --warn:#d6a13a; --err:#ea6a5e;
+  }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-  .app{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+  html,body{height:100%}
+  body{margin:0;font:13px/1.45 var(--sans);color:var(--text);background:var(--chrome);
+    display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto auto;height:100vh;overflow:hidden}
+  button{font:inherit;color:inherit}
+  .ic{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 
-  /* Sidebar */
-  aside{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
-  .brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px}
-  .brand .mk{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:16px;border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
-  .brand b{font-size:14px;letter-spacing:-.01em;display:block}
-  .brand small{color:var(--faint);font-size:11px;font-weight:500}
-  nav{display:flex;flex-direction:column;padding:6px 10px;gap:1px;overflow-y:auto}
-  nav button{display:flex;align-items:center;gap:10px;padding:8px 11px;border:none;background:none;color:var(--dim);font:inherit;font-size:13.5px;text-align:left;border-radius:7px;cursor:pointer;width:100%}
-  nav button:hover{background:var(--surface-2);color:var(--text)}
-  nav button.active{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
-  nav button .ico{width:16px;text-align:center;font-size:14px;flex:none}
-  .side-foot{margin-top:auto;padding:12px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--faint)}
-  .side-foot .conn{display:flex;align-items:center;gap:7px;margin-bottom:4px}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
-  .dot.up{background:var(--ok)} .dot.down{background:var(--err)}
+  /* menu bar */
+  #menubar{display:flex;align-items:stretch;height:30px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:7px;padding:0 14px 0 10px;font-weight:600;border-right:1px solid var(--line-2);white-space:nowrap}
+  .brand .ic{color:var(--accent)}
+  .mb{position:relative}
+  .mb>button{height:100%;padding:0 11px;border:0;background:none;cursor:default}
+  .mb>button:hover,.mb.open>button{background:var(--sel)}
+  .menu{display:none;position:absolute;top:100%;left:0;min-width:230px;background:var(--panel);border:1px solid var(--line);
+    box-shadow:0 3px 10px rgba(0,0,0,.14);padding:3px 0;z-index:60}
+  .open>.menu{display:block}
+  .menu button{display:flex;width:100%;align-items:center;gap:8px;padding:5px 16px 5px 8px;border:0;background:none;text-align:left;cursor:default;white-space:nowrap}
+  .menu button:hover{background:var(--sel)}
+  .menu .chk{width:14px;text-align:center;color:var(--accent);font-weight:700}
+  .menu .k{margin-left:auto;padding-left:18px;color:var(--faint);font-size:12px}
+  .menu hr{border:0;border-top:1px solid var(--line-2);margin:3px 0}
+  #modesw{margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--muted);font-size:12px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .seg button{border:0;background:var(--panel);padding:2px 10px;cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:var(--accent);color:#fff}
+  #treebtn{display:none;border:0;background:none;padding:0 10px;cursor:pointer}
 
-  /* Main */
-  main{padding:26px 30px 70px;min-width:0;max-width:1080px}
-  .page{display:none} .page.on{display:block;animation:fade .18s ease}
-  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px;flex-wrap:wrap}
-  h1{font-size:22px;margin:0 0 3px;letter-spacing:-.01em}
-  .head p{margin:0;color:var(--dim);font-size:13px}
+  /* toolbar */
+  #toolbar{display:flex;align-items:center;gap:2px;padding:3px 6px;background:var(--chrome-2);border-bottom:1px solid var(--line);min-height:36px;flex-wrap:wrap}
+  .tb{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px;border:1px solid transparent;border-radius:3px;background:none;cursor:pointer;white-space:nowrap}
+  .tb:hover{background:var(--panel);border-color:var(--line)}
+  .tb .ic{color:var(--accent)}
+  .tbsep{width:1px;height:20px;background:var(--line);margin:0 5px}
+  .tbm{position:relative}
 
-  .grid{display:grid;gap:14px}
-  .g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
-  @media(max-width:720px){.g2,.g3,.g4{grid-template-columns:1fr}}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow)}
-  .card h3{margin:0 0 12px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700}
-  .stat .n{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .stat .l{font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
-  .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px}
-  .kv dt{color:var(--faint)} .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
+  /* work area */
+  #work{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:0}
+  #tree{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:4px 0;user-select:none}
+  .tg-h{display:flex;align-items:center;gap:6px;height:25px;padding:0 8px;cursor:pointer;font-weight:600}
+  .tg-h .twy{width:10px;color:var(--faint);font-size:10px;text-align:center}
+  .tg-h:hover{background:var(--chrome-2)}
+  .tg.shut .ti{display:none}
+  .ti{display:flex;align-items:center;gap:7px;height:25px;padding:0 8px 0 30px;cursor:pointer}
+  .ti.top{padding-left:12px;font-weight:600}
+  .ti .ic{color:var(--muted)}
+  .ti:hover{background:var(--chrome-2)}
+  .ti.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--accent)}
+  .ti.on .ic{color:var(--accent)}
+  #display{overflow:auto;padding:12px 16px 28px;min-width:0}
+  .crumb{font-size:12px;color:var(--muted)}
+  h1{font-size:17px;font-weight:600;margin:1px 0 4px}
+  .lead{color:var(--muted);margin:0 0 12px}
+  .page{display:none}.page.on{display:block}
+  body.simple [data-adv]{display:none!important}
 
-  /* Controls */
-  label{display:block;font-size:12px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:5px}
-  input,select,textarea{width:100%;padding:8px 11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font:inherit;font-size:13.5px}
-  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
-  textarea{font-family:var(--mono);font-size:12.5px;resize:vertical}
-  .field{margin-bottom:12px}
+  /* boxes, grids */
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:2px;margin-bottom:12px;min-width:0}
+  .bh{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--chrome-2);border-bottom:1px solid var(--line-2);font-weight:600}
+  .bh .sp{flex:1}
+  .bb{padding:10px}
+  .flush>.bb{padding:0}
+  .grid{display:grid;gap:12px}
+  .g2{grid-template-columns:repeat(2,minmax(0,1fr))} .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--panel);border:1px solid var(--line);margin-bottom:12px}
+  .kpi{padding:8px 12px;border-right:1px solid var(--line-2)} .kpi:last-child{border-right:0}
+  .kpi b{display:block;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kpi span{font-size:12px;color:var(--muted)}
+  dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0}
+  .kv dt{color:var(--muted)} .kv dd{margin:0;font-family:var(--mono);font-size:12.5px;word-break:break-all}
+
+  /* forms */
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+  input,select,textarea{width:100%;height:26px;padding:2px 7px;border:1px solid var(--line);border-radius:2px;background:var(--panel);color:var(--text);font:inherit}
+  textarea{height:auto;font-family:var(--mono);font-size:12.5px;padding:5px 7px}
+  input[type=checkbox]{width:auto;height:auto;margin:0}
+  input:focus,select:focus,textarea:focus{outline:1px solid var(--accent);border-color:var(--accent)}
+  .field{margin-bottom:9px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
-  .row>*{flex:1;min-width:120px}
-  button.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;white-space:nowrap}
-  button.btn:hover{border-color:var(--accent);color:var(--accent-ink)}
-  button.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
-  button.btn.pri:hover{filter:brightness(1.06);color:#fff}
-  button.btn.danger:hover{border-color:var(--err);color:var(--err)}
-  button.btn:disabled{opacity:.5;cursor:not-allowed}
-  .btn.sm{padding:5px 10px;font-size:12px}
-  .checks{display:flex;gap:14px;flex-wrap:wrap}
-  .checks label{display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--text);font-size:13.5px;margin:0}
-  .checks input{width:auto}
+  .row>*{flex:1;min-width:110px}
+  .row>.btn,.row>.nogrow{flex:none;min-width:0}
+  .checks{display:flex;gap:14px;flex-wrap:wrap;align-items:center;min-height:26px}
+  .checks label{display:flex;align-items:center;gap:6px;color:var(--text);font-size:13px;margin:0}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 12px;border:1px solid var(--line);border-radius:2px;background:var(--panel);cursor:pointer;white-space:nowrap}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.pri{background:var(--accent);border-color:var(--accent-2);color:#fff}
+  .btn.pri:hover{background:var(--accent-2);color:#fff}
+  .btn.danger:hover{border-color:var(--err);color:var(--err)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .btn.sm{height:22px;padding:0 8px;font-size:12px}
+  .hint{font-size:12px;color:var(--muted);margin-top:4px}
+  .note{border:1px solid var(--line);border-left:3px solid var(--warn);background:var(--panel);padding:6px 10px;margin-bottom:10px;display:none}
+  .note.show{display:block}
 
-  /* Table */
-  .tblwrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0;background:var(--surface)}
-  td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
-  tr:last-child td{border-bottom:none}
-  td.mono,.mono{font-family:var(--mono);font-size:12.5px}
-  tbody tr:hover{background:var(--surface-2)}
-  .empty{padding:26px;text-align:center;color:var(--faint);font-size:13px}
+  /* tables */
+  .tw{overflow:auto;max-height:62vh}
+  table{width:100%;border-collapse:collapse}
+  th{position:sticky;top:0;z-index:1;background:var(--chrome-2);text-align:left;font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line);border-right:1px solid var(--line-2);white-space:nowrap}
+  td{padding:3px 8px;border-bottom:1px solid var(--line-2);border-right:1px solid var(--line-2);vertical-align:middle}
+  th:last-child,td:last-child{border-right:0}
+  tbody tr:nth-child(even){background:var(--zebra)}
+  tbody tr:hover{background:var(--sel)}
+  .mono,td.mono{font-family:var(--mono);font-size:12.5px}
+  .empty{padding:18px;text-align:center;color:var(--faint)}
+  .ok{color:var(--ok)} .err{color:var(--err)} .warn{color:var(--warn)} .in{color:var(--ok)} .out{color:var(--accent)}
+  .tag{display:inline-block;padding:0 6px;border:1px solid var(--line);border-radius:2px;font-size:12px;background:var(--chrome-2)}
 
-  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em}
-  .b-student{background:rgba(40,95,180,.14);color:var(--info)}
-  .b-teacher{background:rgba(28,138,111,.16);color:var(--ok)}
-  .b-administrator{background:var(--accent-soft);color:var(--accent-ink)}
-  .b-none{background:var(--surface-2);color:var(--faint)}
-  .pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);color:var(--dim)}
+  /* home flow (ZKAccess "Navigation") */
+  .flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:26px;margin-bottom:12px}
+  .step{position:relative;background:var(--panel);border:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column}
+  .step:not(:last-child):after{content:"";position:absolute;right:-21px;top:50%;margin-top:-7px;border:7px solid transparent;border-left:9px solid var(--faint)}
+  .step h3{margin:0 0 6px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .num{display:inline-grid;place-items:center;width:21px;height:21px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:600;flex:none}
+  .step.done .num{background:var(--ok)}
+  .step .st{color:var(--muted);flex:1;margin-bottom:8px;min-height:38px}
+  .step .row{gap:6px}
 
-  pre{margin:0;padding:13px 15px;font-family:var(--mono);font-size:12.5px;line-height:1.5;overflow-x:auto;background:var(--code-bg);border-radius:9px;border:1px solid var(--border);color:var(--text)}
+  /* event dock (AxTraxNG event log) */
+  #dock{display:grid;grid-template-rows:28px minmax(0,1fr);height:190px;border-top:1px solid var(--line);background:var(--panel)}
+  #dock.min{height:28px}
+  #dock.min .dockbody{display:none}
+  .dockbar{display:flex;align-items:center;gap:3px;padding:0 6px;background:var(--chrome-2);border-bottom:1px solid var(--line)}
+  .dockbar b{margin-right:8px}
+  .tab{height:22px;padding:0 10px;border:1px solid transparent;border-radius:2px;background:none;cursor:pointer}
+  .tab:hover{border-color:var(--line)}
+  .tab.on{background:var(--panel);border-color:var(--line)}
+  .dockbody{overflow:auto}
 
-  /* Live events */
-  .ev-in{color:var(--ok)} .ev-out{color:var(--info)} .ev-deny{color:var(--err)}
-  .stream-dot{width:8px;height:8px;border-radius:50%;background:var(--err);display:inline-block}
-  .stream-dot.live{background:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent);animation:pulse 1.6s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 50%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  /* status bar */
+  #statusbar{display:flex;align-items:center;height:24px;background:var(--chrome);border-top:1px solid var(--line);font-size:12px;color:var(--muted);overflow:hidden}
+  #statusbar>span{padding:0 10px;border-right:1px solid var(--line);white-space:nowrap}
+  #statusbar>span:last-child{margin-left:auto;border-right:0;border-left:1px solid var(--line)}
+  .led{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:5px}
+  .led.up{background:var(--ok)} .led.down{background:var(--err)}
 
-  /* Topbar */
-  .topbar{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-  .topbar .sp{flex:1}
-  .iconbtn{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--dim);cursor:pointer;font-size:15px;display:grid;place-items:center}
-  .iconbtn:hover{color:var(--text);border-color:var(--border-strong)}
-
-  /* Toast */
-  #toasts{position:fixed;bottom:18px;right:18px;display:flex;flex-direction:column;gap:8px;z-index:100}
-  .toast{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--info);border-radius:9px;padding:10px 14px;box-shadow:var(--shadow);font-size:13px;max-width:340px;animation:slidein .2s}
+  #toasts{position:fixed;right:14px;bottom:34px;display:flex;flex-direction:column;gap:6px;z-index:80}
+  .toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);padding:7px 12px;max-width:360px;box-shadow:0 2px 8px rgba(0,0,0,.12)}
   .toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--err)}
-  @keyframes slidein{from{transform:translateX(20px);opacity:0}to{transform:none;opacity:1}}
+  progress{width:100%;height:12px}
 
-  a{color:var(--accent-ink)}
-  .hint{font-size:12px;color:var(--faint);margin-top:4px}
-  .warn-banner{background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);color:var(--text);border-radius:9px;padding:9px 13px;font-size:13px;margin-bottom:16px;display:none}
-  .warn-banner.show{display:block}
-
-  @media(max-width:720px){.app{grid-template-columns:1fr}aside{position:static;height:auto;flex-direction:column;border-right:none;border-bottom:1px solid var(--border)}nav{flex-direction:row;flex-wrap:wrap}main{padding:20px}}
+  @media (max-width:820px){
+    #work{grid-template-columns:1fr}
+    #menubar{flex-wrap:wrap;height:auto}
+    #menubar>*{height:30px}
+    #tree{display:none;position:fixed;top:0;bottom:0;left:0;width:250px;z-index:70;box-shadow:2px 0 10px rgba(0,0,0,.25)}
+    body.tree-open #tree{display:block}
+    #treebtn{display:block}
+    .brand span{display:none}
+    #dock{display:none}
+    .flow,.g2,.g3{grid-template-columns:1fr}
+    .step:not(:last-child):after{display:none}
+    .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+    #display{padding:10px}
+    #modesw>span{display:none}
+  }
+  @media print{
+    #menubar,#toolbar,#tree,#dock,#statusbar,#toasts,.noprint{display:none!important}
+    body{display:block;height:auto;overflow:visible;background:#fff}
+    #work{display:block} #display{overflow:visible;padding:0} .tw{max-height:none;overflow:visible}
+  }
 </style>
 </head>
 <body>
-<div class="app">
-  <aside>
-    <div class="brand"><div class="mk">🔐</div><div><b>C3 Console</b><small id="brandsub">access middleware</small></div></div>
-    <nav id="nav"></nav>
-    <div class="side-foot">
-      <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-txt">connecting…</span></div>
-      <div id="ver">—</div>
-    </div>
-  </aside>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 16 16"><path d="M2 7.5 8 2.5l6 5M3.5 6.5V13.5h9V6.5M6.5 13.5V9.5h3v4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.2"/><path d="m10.2 10.2 3.6 3.6"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="1"/><path d="M5 5.5h6M5 8h6M5 10.5h3"/></symbol>
+  <symbol id="i-door" viewBox="0 0 16 16"><path d="M3.5 14V2.5h9V14M1.5 14h13"/><path d="M10 8.5v.5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 16 16"><path d="M3 2.5v11M8 2.5v11M13 2.5v11"/><path d="M1.5 10h3M6.5 5h3M11.5 9h3"/></symbol>
+  <symbol id="i-table" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10"/><path d="M2 6.5h12M2 10h12M6 3v10"/></symbol>
+  <symbol id="i-users" viewBox="0 0 16 16"><circle cx="6" cy="5.5" r="2.3"/><path d="M1.8 13.5c.4-2.5 2.1-3.8 4.2-3.8s3.8 1.3 4.2 3.8"/><path d="M10.5 3.6a2.2 2.2 0 0 1 0 4.1M11.8 9.9c1.3.5 2.1 1.7 2.4 3.6"/></symbol>
+  <symbol id="i-card" viewBox="0 0 16 16"><rect x="1.5" y="3.5" width="13" height="9" rx="1"/><path d="M1.5 6.5h13M4 10h3"/></symbol>
+  <symbol id="i-import" viewBox="0 0 16 16"><path d="M8 2v8M5 7l3 3 3-3M2.5 11v2.5h11V11"/></symbol>
+  <symbol id="i-export" viewBox="0 0 16 16"><path d="M8 10V2M5 5l3-3 3 3M2.5 11v2.5h11V11"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><path d="M8 1.8 13 3.6v4c0 3.2-2.2 5.4-5 6.6-2.8-1.2-5-3.4-5-6.6v-4z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="10"/><path d="M2 6.5h12M5 2v3M11 2v3"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M5.5 4h8M5.5 8h8M5.5 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 16 16"><path d="M1 8.5h3l2-5 3.5 9 2-4h3.5"/></symbol>
+  <symbol id="i-report" viewBox="0 0 16 16"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3M5.5 8h5M5.5 10.5h5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 16 16"><path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3.2M8 11.6v.2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 16 16"><path d="M6 1.5v3M10 1.5v3M4 4.5h8v2.5a4 4 0 0 1-8 0zM8 11v3.5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7.2v4M8 4.8v.2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 16 16"><path d="M13 3.5v3h-3"/><path d="M12.6 6.5A5 5 0 1 0 13 9.5"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 16 16"><rect x="3" y="7.5" width="10" height="7" rx="1"/><path d="M5.5 7.5V5a2.5 2.5 0 0 1 4.9-.7"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 16 16"><circle cx="8" cy="8.5" r="5"/><path d="M8 5.5v3l2 1M6 1.5h4"/></symbol>
+  <symbol id="i-print" viewBox="0 0 16 16"><path d="M4 6V1.5h8V6M4 11.5H2V6h12v5.5h-2"/><rect x="4" y="9.5" width="8" height="5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 2.5v11l9-5.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M5 3v10M11 3v10"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 16 16"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 10h6.6L12 4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8.5 3.2 3L13 4.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></symbol>
+</svg>
 
-  <main>
-    <div class="topbar">
-      <div class="sp"></div>
-      <button class="iconbtn" id="refresh" title="Refresh">⟳</button>
-      <button class="iconbtn" id="theme" title="Toggle theme">◐</button>
-    </div>
-    <div class="warn-banner" id="wbanner"></div>
+<!-- MENU BAR (AxTraxNG: File / View / Tools / Help) -->
+<header id="menubar">
+  <button id="treebtn" title="Menu"><svg class="ic"><use href="#i-list"/></svg></button>
+  <div class="brand"><svg class="ic"><use href="#i-shield"/></svg><span>Access Console</span></div>
+  <div class="mb"><button>File</button><div class="menu">
+    <button data-act="home"><span class="chk"></span>Home<span class="k">Alt+H</span></button>
+    <button data-act="exportPeople"><span class="chk"></span>Export people (CSV)</button>
+    <button data-act="exportEvents"><span class="chk"></span>Export events (CSV)…</button>
+    <hr><button data-act="print"><span class="chk"></span>Print this page<span class="k">Ctrl+P</span></button>
+    <hr><button data-act="settings"><span class="chk"></span>Connection settings…</button>
+  </div></div>
+  <div class="mb"><button>View</button><div class="menu">
+    <button data-act="simple"><span class="chk" data-check="simple"></span>Simple mode</button>
+    <button data-act="advanced"><span class="chk" data-check="advanced"></span>Advanced mode</button>
+    <hr><button data-act="dock" data-adv><span class="chk" data-check="dock"></span>Event log panel</button>
+    <button data-act="light"><span class="chk" data-check="light"></span>Light theme</button>
+    <button data-act="dark"><span class="chk" data-check="dark"></span>Dark theme</button>
+    <hr><button data-act="refresh"><span class="chk"></span>Refresh<span class="k">F5</span></button>
+  </div></div>
+  <div class="mb"><button>Tools</button><div class="menu">
+    <button data-act="discover"><span class="chk"></span>Find panels…</button>
+    <button data-act="sync"><span class="chk"></span>Set panel time</button>
+    <button data-act="door1"><span class="chk"></span>Open door 1</button>
+    <button data-act="door2"><span class="chk"></span>Open door 2</button>
+    <hr><button data-act="import"><span class="chk"></span>Import people (CSV)…</button>
+    <button data-act="params" data-adv><span class="chk"></span>Device parameters…</button>
+    <button data-act="tables" data-adv><span class="chk"></span>Data tables…</button>
+  </div></div>
+  <div class="mb"><button>Help</button><div class="menu">
+    <button data-act="home"><span class="chk"></span>Getting started</button>
+    <button data-act="about"><span class="chk"></span>About</button>
+  </div></div>
+  <div id="modesw"><span>Mode</span><div class="seg"><button data-mode="simple">Simple</button><button data-mode="advanced">Advanced</button></div></div>
+</header>
 
-    <!-- DISCOVER -->
+<!-- TOOLBAR (changes with the selected page, like AxTraxNG) -->
+<div id="toolbar"></div>
+
+<div id="work">
+  <nav id="tree" aria-label="Navigation"></nav>
+  <main id="display">
+    <div class="note" id="wbanner"></div>
+
+    <!-- HOME -->
+    <section class="page" data-page="home">
+      <div class="crumb">Home</div>
+      <h1>Getting started</h1>
+      <p class="lead">Four steps, in order. Each box shows where you are.</p>
+      <div class="flow">
+        <div class="step" id="st1"><h3><span class="num">1</span>Find the panel</h3><div class="st" id="h-s1">Checking…</div>
+          <div class="row"><button class="btn pri" onclick="go('discover')">Find panels</button></div></div>
+        <div class="step" id="st2"><h3><span class="num">2</span>Add people</h3><div class="st" id="h-s2">—</div>
+          <div class="row"><button class="btn pri" onclick="go('people')">Add person</button><button class="btn" onclick="go('import')">Import list</button></div></div>
+        <div class="step" id="st3"><h3><span class="num">3</span>Access times</h3><div class="st" id="h-s3">—</div>
+          <div class="row"><button class="btn" onclick="setMode('advanced');go('rules')">Set times</button></div></div>
+        <div class="step" id="st4"><h3><span class="num">4</span>Watch and report</h3><div class="st" id="h-s4">—</div>
+          <div class="row"><button class="btn pri" onclick="go('attendance')">Attendance</button><button class="btn" onclick="go('history')">Events</button></div></div>
+      </div>
+      <div class="kpis" id="h-kpis"></div>
+      <div class="grid g2">
+        <div class="box"><div class="bh">Open a door</div><div class="bb">
+          <div class="row"><div class="nogrow" style="width:120px"><label>Seconds</label><input id="h-sec" value="5" inputmode="numeric"></div><div class="row nogrow" id="h-doors" style="gap:6px"></div></div>
+          <div class="hint">Door 1 = Reader 1 (entry) output, door 2 = Reader 2 (exit) output on the AC-215.</div></div></div>
+        <div class="box flush"><div class="bh">Latest events<span class="sp"></span><button class="btn sm" onclick="go('live')">All events</button></div><div class="bb tw" style="max-height:220px">
+          <table><thead><tr><th>Time</th><th>Event</th><th>Name</th><th>Dir</th></tr></thead><tbody id="h-recent"><tr><td class="empty" colspan="4">Waiting for events…</td></tr></tbody></table></div></div>
+      </div>
+    </section>
+
+    <!-- FIND PANELS -->
     <section class="page" data-page="discover">
-      <div class="head"><div><h1>Find the door controller</h1><p>The same steps as AxTraxNG's "Find Panels", run live from this middleware.</p></div>
-        <button class="btn pri" id="disc-run">Run discovery</button>
-      </div>
+      <div class="crumb">Devices › Find panels</div>
+      <h1>Find panels</h1>
+      <p class="lead">The same method as AxTraxNG's "Find Panels", run from this middleware.</p>
       <div class="grid g3">
-        <div class="card"><h3>1 · Adapter on the network</h3>
-          <p class="hint">Sends <span class="mono">www.usr.cn</span> to UDP port 48899, as a broadcast and to the configured host. Every USR serial adapter (USR-W610) answers with its IP and MAC.</p>
-          <div id="disc-1"><div class="empty">Not run yet.</div></div></div>
-        <div class="card"><h3>2 · Open its RS-485 port</h3>
-          <p class="hint">Connects over TCP to <span class="mono" id="disc-bus">PANEL_ADDR</span>, the adapter's transparent serial port (9600 8N1, wired to L1/L2 of the panel).</p>
-          <div id="disc-2"><div class="empty">Not run yet.</div></div></div>
-        <div class="card"><h3>3 · Ask every bus address</h3>
-          <p class="hint">Sends <span class="mono">6A RequestFirmVer</span> to bus addresses 1–32 (the panel's DIP switches 4–8). A panel answers <span class="mono">EB</span> with its firmware name.</p>
-          <div id="disc-3"><div class="empty">Not run yet.</div></div></div>
+        <div class="box"><div class="bh">1. Adapter on the network</div><div class="bb">
+          <div class="hint" style="margin:0 0 8px">Sends <span class="mono">www.usr.cn</span> to UDP 48899, as a broadcast and to the configured host. USR adapters (USR-W610) answer with IP and MAC.</div>
+          <div id="disc-1"><div class="empty">Not run yet.</div></div></div></div>
+        <div class="box"><div class="bh">2. RS-485 port</div><div class="bb">
+          <div class="hint" style="margin:0 0 8px">TCP to <span class="mono" id="disc-bus">PANEL_ADDR</span>, the adapter's serial port (9600 8N1, to L1/L2 on the panel).</div>
+          <div id="disc-2"><div class="empty">Not run yet.</div></div></div></div>
+        <div class="box"><div class="bh">3. Ask every bus address</div><div class="bb">
+          <div class="hint" style="margin:0 0 8px"><span class="mono">6A RequestFirmVer</span> to addresses 1–32 (DIP switches 4–8). A panel answers <span class="mono">EB</span> with its firmware.</div>
+          <div id="disc-3"><div class="empty">Not run yet.</div></div></div></div>
       </div>
-      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Panels found</h3>
-      <div class="tblwrap"><table><thead><tr><th>Bus address</th><th>Firmware / loader</th><th>Reply</th><th>Status</th></tr></thead><tbody id="disc-found"><tr><td class="empty" colspan="4">Run discovery to scan the bus.</td></tr></tbody></table></div>
-      <div class="row" style="margin-top:14px;justify-content:flex-start">
-        <button class="btn" style="flex:none" onclick="go('cards')">Next: add users →</button>
-        <button class="btn" style="flex:none" onclick="go('attendance')">Then: attendance →</button>
-      </div>
+      <div class="box flush"><div class="bh">Panels found<span class="sp"></span><button class="btn sm pri" id="disc-run">Run discovery</button></div><div class="bb tw">
+        <table><thead><tr><th>Bus address</th><th>Firmware / loader</th><th>Reply</th><th>Status</th></tr></thead>
+        <tbody id="disc-found"><tr><td class="empty" colspan="4">Run discovery to scan the bus.</td></tr></tbody></table></div></div>
+      <div class="row"><button class="btn nogrow" onclick="go('people')">Next: add people</button></div>
     </section>
 
-    <!-- OVERVIEW -->
-    <section class="page" data-page="overview">
-      <div class="head"><div><h1>Overview</h1><p>Panel identity, live status, and service metrics.</p></div></div>
-      <div class="grid g4" id="stats"></div>
-      <div class="grid g2" style="margin-top:14px">
-        <div class="card"><h3>Device</h3><dl class="kv" id="device"></dl></div>
-        <div class="card"><h3>Door status</h3><div id="doorstatus"></div></div>
-      </div>
-    </section>
-
-    <!-- LIVE -->
-    <section class="page" data-page="live">
-      <div class="head">
-        <div><h1>Live events</h1><p>Realtime access events streamed from the panel.</p></div>
-        <div class="row" style="flex:none">
-          <button class="btn pri" id="streamtoggle">Start stream</button>
-          <button class="btn sm" id="clearev">Clear</button>
-        </div>
-      </div>
-      <div style="margin-bottom:10px"><span class="stream-dot" id="sdot"></span> <span id="sstat" class="mono" style="font-size:12px;color:var(--faint)">stopped</span></div>
-      <div class="tblwrap"><table><thead><tr><th>Time</th><th>Card</th><th>Name</th><th>Reader</th><th>Dir</th><th>Event</th></tr></thead><tbody id="evbody"><tr><td class="empty" colspan="6">Start the stream, then swipe a card.</td></tr></tbody></table></div>
-    </section>
-
-    <!-- ATTENDANCE -->
-    <section class="page" data-page="attendance">
-      <div class="head">
-        <div><h1>Attendance</h1><p>Who came in, who left, and when, from the entry and exit readers.</p></div>
-        <div class="row" style="flex:none">
-          <input type="date" id="at-day" style="width:auto">
-          <button class="btn" id="at-load">Reload</button>
-          <button class="btn sm" id="at-csv-sum">CSV summary</button>
-          <button class="btn sm" id="at-csv-log">CSV log</button>
-        </div>
-      </div>
-      <div class="grid g4" id="at-stats"></div>
-      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">People</h3>
-      <div class="tblwrap"><table><thead><tr><th>Name</th><th>Card</th><th>First in</th><th>Last out</th><th>Passes</th><th>Time inside</th><th>Now</th></tr></thead><tbody id="at-people"></tbody></table></div>
-      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Entry / exit log</h3>
-      <div class="tblwrap"><table><thead><tr><th>Time</th><th>Name</th><th>Card</th><th>Dir</th><th>Result</th></tr></thead><tbody id="at-log"></tbody></table></div>
-    </section>
-
-    <!-- CARDS -->
-    <section class="page" data-page="cards">
-      <div class="head"><div><h1>Cards &amp; roles</h1><p>Enrolled users, their role, and door access.</p></div>
-        <button class="btn" id="reloadcards">Reload</button>
-      </div>
+    <!-- PANEL STATUS -->
+    <section class="page" data-page="panel">
+      <div class="crumb">Devices › Panel status</div>
+      <h1>Panel status</h1>
+      <div class="kpis" id="stats"></div>
       <div class="grid g2">
-        <div class="card">
-          <h3>Enroll / update card</h3>
-          <div class="field"><label>Cardholder name</label><input id="c-name" placeholder="e.g. Sara Ahmed"></div>
-          <div class="row">
-            <div class="field" style="flex:2"><label>Card number</label><input id="c-card" placeholder="212532046" inputmode="numeric"></div>
-            <div class="field"><label>PIN (optional)</label><input id="c-pin" placeholder="auto = card no"></div>
-          </div>
-          <div class="row">
-            <div class="field"><label>Role</label><select id="c-role"></select></div>
-            <div class="field"><label>Timezone id</label><input id="c-tz" value="1" inputmode="numeric"></div>
-          </div>
-          <div class="field"><label>Doors</label><div class="checks" id="c-doors">
-            <label><input type="checkbox" value="1" checked> Door 1</label>
-            <label><input type="checkbox" value="2" checked> Door 2</label>
-            <label><input type="checkbox" value="3"> Door 3</label>
-            <label><input type="checkbox" value="4"> Door 4</label>
-          </div></div>
-          <button class="btn pri" id="enroll">Enroll card</button>
-          <div class="hint" id="writehint"></div>
-        </div>
-        <div class="card">
-          <h3>Roles</h3>
-          <p style="font-size:13px;color:var(--dim);margin:0 0 10px">Role is stored in the panel's <span class="mono">Group</span> field. Time/direction rules are enforced by the middleware.</p>
-          <dl class="kv">
-            <dt><span class="badge b-student">student</span></dt><dd>enter 07:00–07:30, exit 13:30–14:00</dd>
-            <dt><span class="badge b-teacher">teacher</span></dt><dd>working hours, not holidays</dd>
-            <dt><span class="badge b-administrator">admin</span></dt><dd>all doors, all times</dd>
-          </dl>
-          <p class="hint">Enforcement engine configurable in a later step; roles assignable now.</p>
-        </div>
-      </div>
-      <h3 style="margin:22px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint)">Enrolled (<span id="cardcount">0</span>)</h3>
-      <div class="tblwrap"><table><thead><tr><th>Name</th><th>Card no</th><th>PIN</th><th>Role</th><th>Doors</th><th>Status</th><th></th></tr></thead><tbody id="cardbody"></tbody></table></div>
-    </section>
-
-    <!-- ACCESS RULES -->
-    <section class="page" data-page="access">
-      <div class="head"><div><h1>Access rules</h1><p>Roles, time windows, and holidays enforced by the middleware.</p></div>
-        <button class="btn" id="reloadaccess">Reload</button>
-      </div>
-      <div class="card" id="enfcard" style="margin-bottom:14px">
-        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-          <label class="switch" style="margin:0;text-transform:none;letter-spacing:0;color:var(--text);display:flex;align-items:center;gap:8px;font-weight:600">
-            <input type="checkbox" id="enf-on" style="width:auto"> Enforcement enabled
-          </label>
-          <span class="hint" style="margin:0">When on, enforced roles are gated by these rules; the panel denies enforced cards and the middleware opens the door when a rule matches.</span>
-        </div>
-      </div>
-      <div class="grid g2">
-        <div class="card">
-          <h3>Roles</h3>
-          <div class="tblwrap" style="box-shadow:none;margin-bottom:12px"><table><thead><tr><th>Role</th><th>Group</th><th>Mode</th><th>Windows</th><th></th></tr></thead><tbody id="rolebody"></tbody></table></div>
-          <button class="btn" id="newrole">+ New role</button>
-        </div>
-        <div class="card">
-          <h3 id="editortitle">Role editor</h3>
-          <div class="row"><div class="field"><label>Name</label><input id="r-name" placeholder="student"></div>
-            <div class="field"><label>Group id</label><input id="r-group" inputmode="numeric" placeholder="1"></div></div>
-          <div class="field"><label>Mode</label>
-            <div class="checks"><label><input type="checkbox" id="r-enforce" checked> Enforced (middleware gates access)</label></div>
-            <div class="hint">Off = panel-native (its own timezone/doors, works if middleware is down — use for admins).</div>
-          </div>
-          <div class="field"><label>Permitted days</label><div class="checks" id="r-days"></div></div>
-          <div class="row"><div class="field"><label>Open seconds</label><input id="r-open" value="5" inputmode="numeric"></div>
-            <div class="field"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="r-holiday" checked style="width:auto"> Block on holidays</label></div></div>
-          <label>Time windows</label>
-          <div id="r-windows"></div>
-          <button class="btn sm" id="addwindow" style="margin:6px 0 12px">+ Add window</button>
-          <div class="row"><button class="btn pri" id="saverole">Save role</button><button class="btn" id="clearrole">Clear</button></div>
-        </div>
-      </div>
-      <div class="grid g2" style="margin-top:14px">
-        <div class="card">
-          <h3>Holidays</h3>
-          <div class="field"><label>Dates (one per line, YYYY-MM-DD)</label><textarea id="holidays" rows="5" placeholder="2026-07-14"></textarea></div>
-          <div class="field"><label style="text-transform:none;letter-spacing:0"><input type="checkbox" id="swapio" style="width:auto"> Swap panel in/out interpretation</label>
-            <div class="hint">Toggle if entry/exit read reversed. Confirm by watching the Direction column below while you swipe.</div></div>
-          <button class="btn pri" id="savepolicy">Save policy</button>
-        </div>
-        <div class="card">
-          <h3>Recent decisions</h3>
-          <div class="tblwrap" style="box-shadow:none"><table><thead><tr><th>Time</th><th>Card</th><th>Role</th><th>Dir</th><th>Result</th></tr></thead><tbody id="decbody"><tr><td class="empty" colspan="5">Enforced swipes appear here.</td></tr></tbody></table></div>
-        </div>
+        <div class="box"><div class="bh">Device</div><div class="bb"><dl class="kv" id="device"></dl></div></div>
+        <div class="box"><div class="bh">Doors</div><div class="bb" id="doorstatus"></div></div>
       </div>
     </section>
 
     <!-- DOORS -->
     <section class="page" data-page="doors">
-      <div class="head"><div><h1>Doors &amp; outputs</h1><p>Pulse relays, drive aux outputs, cancel alarms.</p></div>
-        <button class="btn" id="refreshdoors">Refresh status</button>
-      </div>
+      <div class="crumb">Devices › Doors &amp; outputs</div>
+      <h1>Doors &amp; outputs</h1>
+      <p class="lead">Manual door operation: pulse a lock output or switch an auxiliary output.</p>
       <div class="grid g2">
-        <div class="card"><h3>Open door</h3>
-          <div class="field"><label>Duration (seconds)</label><input id="d-sec" value="5" inputmode="numeric"></div>
-          <div class="row" id="doorbtns"></div>
-        </div>
-        <div class="card"><h3>Auxiliary output</h3>
-          <div class="row">
-            <div class="field"><label>Aux #</label><input id="a-n" value="1" inputmode="numeric"></div>
-            <div class="field"><label>Seconds</label><input id="a-sec" value="5" inputmode="numeric"></div>
-          </div>
-          <div class="row"><button class="btn" id="aux-on">Turn on</button><button class="btn" id="aux-off">Turn off</button></div>
-          <h3 style="margin-top:18px">Alarm</h3>
-          <button class="btn danger" id="cancelalarm">Cancel alarm</button>
-        </div>
+        <div class="box"><div class="bh">Open door</div><div class="bb">
+          <div class="field" style="max-width:160px"><label>Open for (seconds)</label><input id="d-sec" value="5" inputmode="numeric"></div>
+          <div class="row" id="doorbtns"></div></div></div>
+        <div class="box"><div class="bh">Auxiliary output</div><div class="bb">
+          <div class="row"><div class="field"><label>Output number</label><input id="a-n" value="1" inputmode="numeric"></div>
+            <div class="field"><label>Seconds (0 = stay on)</label><input id="a-sec" value="5" inputmode="numeric"></div></div>
+          <div class="row"><button class="btn" id="aux-on">Turn on</button><button class="btn" id="aux-off">Back to normal</button>
+            <button class="btn danger" id="cancelalarm" data-adv>Cancel alarm</button></div></div></div>
       </div>
-      <div class="card" style="margin-top:14px"><h3>Live door status</h3><div id="doorstatus2"></div></div>
+      <div class="box"><div class="bh">Door status</div><div class="bb" id="doorstatus2"></div></div>
     </section>
 
-    <!-- TABLES -->
-    <section class="page" data-page="tables">
-      <div class="head"><div><h1>Data tables</h1><p>Read any table stored on the panel.</p></div></div>
-      <div class="row" style="max-width:420px;margin-bottom:14px">
-        <div class="field" style="margin:0"><label>Table</label><select id="t-name"></select></div>
-        <button class="btn" id="t-load" style="flex:none">Load</button>
-      </div>
-      <div class="tblwrap" id="t-out"><div class="empty">Pick a table and load.</div></div>
-    </section>
-
-    <!-- DEVICE -->
-    <section class="page" data-page="device">
-      <div class="head"><div><h1>Device</h1><p>Parameters, clock, and panel control.</p></div></div>
+    <!-- PARAMETERS -->
+    <section class="page" data-page="params">
+      <div class="crumb">Devices › Parameters</div>
+      <h1>Device parameters</h1>
       <div class="grid g2">
-        <div class="card"><h3>Read parameters</h3>
-          <div class="field"><label>Keys (comma-separated, blank = common set)</label><input id="p-keys" placeholder="~SerialNumber,IPAddress,LockCount"></div>
+        <div class="box"><div class="bh">Read parameters</div><div class="bb">
+          <div class="field"><label>Keys, comma separated (blank = common set)</label><input id="p-keys" placeholder="~SerialNumber,IPAddress,LockCount"></div>
           <button class="btn" id="p-get">Read</button>
-          <pre id="p-out" style="margin-top:12px;display:none"></pre>
-        </div>
-        <div class="card"><h3>Set parameter</h3>
+          <pre id="p-out" class="mono" style="display:none;margin:10px 0 0;white-space:pre-wrap"></pre></div></div>
+        <div class="box"><div class="bh">Write parameter</div><div class="bb">
+          <div class="row"><div class="field"><label>Key</label><input id="p-k" placeholder="Door1Drivertime"></div><div class="field"><label>Value</label><input id="p-v" placeholder="5"></div></div>
+          <button class="btn" id="p-set">Write</button>
+          <div class="row" style="margin-top:12px"><button class="btn" id="timesync">Set panel time</button><button class="btn danger" id="restart">Restart panel</button></div></div></div>
+      </div>
+      <p class="hint">The Rosslare AC-215 driver has no parameter commands; these work on ZKTeco C3 panels.</p>
+    </section>
+
+    <!-- DATA TABLES -->
+    <section class="page" data-page="tables">
+      <div class="crumb">Devices › Data tables</div>
+      <h1>Data tables</h1>
+      <div class="row" style="max-width:420px;margin-bottom:10px"><div><label>Table</label><select id="t-name"></select></div><button class="btn" id="t-load">Load</button></div>
+      <div class="box flush"><div class="bb tw" id="t-out"><div class="empty">Pick a table and load.</div></div></div>
+    </section>
+
+    <!-- PEOPLE -->
+    <section class="page" data-page="people">
+      <div class="crumb">Personnel › People &amp; cards</div>
+      <h1>People &amp; cards</h1>
+      <div class="grid g2">
+        <div class="box"><div class="bh" id="c-title">Add person</div><div class="bb">
+          <div class="field"><label>Name</label><input id="c-name" placeholder="e.g. Sara Hassan"></div>
           <div class="row">
-            <div class="field"><label>Key</label><input id="p-k" placeholder="Door1Drivertime"></div>
-            <div class="field"><label>Value</label><input id="p-v" placeholder="5"></div>
+            <div class="field" style="flex:2"><label>Card number</label><input id="c-card" placeholder="8065590" inputmode="numeric"></div>
+            <div class="field"><label>Role</label><select id="c-role" class="roles"></select></div>
           </div>
-          <button class="btn" id="p-set">Write parameter</button>
-          <h3 style="margin-top:18px">Panel control</h3>
-          <div class="row">
-            <button class="btn" id="timesync">Sync clock</button>
-            <button class="btn danger" id="restart">Restart panel</button>
+          <div class="row" data-adv>
+            <div class="field"><label>User id / PIN (optional)</label><input id="c-pin" placeholder="auto = card number"></div>
+            <div class="field"><label>Time zone id</label><input id="c-tz" value="1" inputmode="numeric"></div>
           </div>
-        </div>
+          <div class="field"><label>Doors this card opens</label><div class="checks" id="c-doors"></div></div>
+          <div class="row"><button class="btn pri" id="enroll">Save person</button><button class="btn" id="c-clear">Clear</button></div>
+          <div class="hint" id="writehint"></div></div></div>
+        <div class="box"><div class="bh">How access works</div><div class="bb">
+          <p style="margin:0 0 6px">The panel opens the turnstile by itself for every enrolled card, on the doors you tick.</p>
+          <p style="margin:0 0 6px">To limit a role to certain hours (for example students may enter 07:00–07:30), switch to <b>Advanced</b> and use <b>Access control › Access rules</b>.</p>
+          <p class="hint" style="margin:0">Card number = the number printed on the card or shown when it is swiped (facility and card together, e.g. 123/4660 = 8065588).</p></div></div>
+      </div>
+      <div class="box flush"><div class="bh">Enrolled (<span id="cardcount">0</span>)<span class="sp"></span>
+        <input id="c-filter" placeholder="Search name or card" style="width:220px;height:22px"></div>
+        <div class="bb tw"><table><thead><tr><th>Name</th><th>Card number</th><th data-adv>User id</th><th>Role</th><th>Doors</th><th>Status</th><th></th></tr></thead><tbody id="cardbody"></tbody></table></div></div>
+    </section>
+
+    <!-- IMPORT / EXPORT -->
+    <section class="page" data-page="import">
+      <div class="crumb">Personnel › Import / export</div>
+      <h1>Import / export</h1>
+      <div class="grid g2">
+        <div class="box"><div class="bh">Import from a spreadsheet (CSV)</div><div class="bb">
+          <div class="hint" style="margin:0 0 8px">Columns: <span class="mono">name, card_no, role, doors, pin</span>. Doors as <span class="mono">1;2</span>. Save from Excel as "CSV (comma delimited)".</div>
+          <div class="field"><input type="file" id="im-file" accept=".csv,text/csv" style="height:auto;padding:3px"></div>
+          <div class="field"><label>…or paste rows</label><textarea id="im-text" rows="6" placeholder="name,card_no,role,doors&#10;Sara Hassan,8065590,student,1;2"></textarea></div>
+          <div class="row"><button class="btn" id="im-preview">Check list</button><button class="btn" id="im-template">Download template</button></div></div></div>
+        <div class="box"><div class="bh">Add a range of cards</div><div class="bb">
+          <div class="hint" style="margin:0 0 8px">For a box of cards with numbers in a row (like AxTraxNG's "Add Users and Cards").</div>
+          <div class="row"><div class="field"><label>First card number</label><input id="rg-start" inputmode="numeric" placeholder="8065600"></div>
+            <div class="field"><label>How many</label><input id="rg-count" inputmode="numeric" value="10"></div></div>
+          <div class="row"><div class="field"><label>Name prefix</label><input id="rg-prefix" value="Card"></div>
+            <div class="field"><label>Role</label><select id="rg-role" class="roles"></select></div></div>
+          <button class="btn" id="rg-add">Add to list</button></div></div>
+      </div>
+      <div class="box flush"><div class="bh">List to import (<span id="im-count">0</span>)<span class="sp"></span>
+        <button class="btn sm" id="im-reset">Clear list</button><button class="btn sm pri" id="im-run">Import all</button></div>
+        <div class="bb" style="padding:8px 10px;border-bottom:1px solid var(--line-2)"><progress id="im-prog" value="0" max="1"></progress> <span class="hint" id="im-stat">Nothing imported yet. About 10 cards a second on the AC-215.</span></div>
+        <div class="bb tw"><table><thead><tr><th>#</th><th>Name</th><th>Card number</th><th>Role</th><th>Doors</th><th>Result</th></tr></thead><tbody id="im-body"><tr><td class="empty" colspan="6">Load a CSV or add a range.</td></tr></tbody></table></div></div>
+      <div class="box"><div class="bh">Export</div><div class="bb row"><button class="btn nogrow" onclick="exportPeople()">People (CSV)</button>
+        <button class="btn nogrow" onclick="go('attendance')">Attendance (CSV) on the Attendance page</button></div></div>
+    </section>
+
+    <!-- ACCESS RULES -->
+    <section class="page" data-page="rules">
+      <div class="crumb">Access control › Access rules</div>
+      <h1>Access rules</h1>
+      <p class="lead">Roles with the days and hours their cards work. Enforced roles are checked by this middleware on every swipe.</p>
+      <div class="grid g2">
+        <div class="box flush"><div class="bh">Roles<span class="sp"></span><button class="btn sm" id="newrole">New role</button></div><div class="bb tw">
+          <table><thead><tr><th>Role</th><th>Group</th><th>Mode</th><th>Times</th><th></th></tr></thead><tbody id="rolebody"></tbody></table></div></div>
+        <div class="box"><div class="bh" id="editortitle">Role editor</div><div class="bb">
+          <div class="row"><div class="field"><label>Name</label><input id="r-name" placeholder="student"></div>
+            <div class="field"><label>Group id</label><input id="r-group" inputmode="numeric" placeholder="1"></div></div>
+          <div class="field"><div class="checks"><label><input type="checkbox" id="r-enforce" checked> Enforced (middleware checks the times)</label></div>
+            <div class="hint">Off = the panel decides alone and still works if the middleware is down (use for admins).</div></div>
+          <div class="field"><label>Days</label><div class="checks" id="r-days"></div></div>
+          <div class="row"><div class="field"><label>Open seconds</label><input id="r-open" value="5" inputmode="numeric"></div>
+            <div class="field"><div class="checks"><label><input type="checkbox" id="r-holiday" checked> Closed on holidays</label></div></div></div>
+          <label>Time windows (direction, from, to)</label>
+          <div id="r-windows"></div>
+          <button class="btn sm" id="addwindow" style="margin:4px 0 10px">Add window</button>
+          <div class="row"><button class="btn pri" id="saverole">Save role</button><button class="btn" id="clearrole">Clear</button></div></div></div>
       </div>
     </section>
 
-    <!-- SETTINGS -->
-    <section class="page" data-page="settings">
-      <div class="head"><div><h1>Settings</h1><p>Connection to the middleware API.</p></div></div>
-      <div class="card" style="max-width:520px">
-        <div class="field"><label>API base URL</label><input id="s-base" placeholder="(same origin)"></div>
-        <div class="field"><label>API key (bearer)</label><input id="s-key" type="password" placeholder="blank if auth disabled"></div>
-        <button class="btn pri" id="s-save">Save &amp; reconnect</button>
-        <div class="hint">Stored in this browser only (localStorage). The console is served by the middleware at <span class="mono">/ui</span>.</div>
+    <!-- HOLIDAYS & POLICY -->
+    <section class="page" data-page="policy">
+      <div class="crumb">Access control › Holidays &amp; policy</div>
+      <h1>Holidays &amp; policy</h1>
+      <div class="grid g2">
+        <div class="box"><div class="bh">Enforcement</div><div class="bb">
+          <div class="checks field"><label><input type="checkbox" id="enf-on"> Check enforced roles on every swipe</label></div>
+          <div class="checks field"><label><input type="checkbox" id="swapio"> Swap entry and exit</label></div>
+          <div class="hint">Swap if passes show the wrong direction; check on Real-time events while you swipe.</div></div></div>
+        <div class="box"><div class="bh">Holidays</div><div class="bb">
+          <div class="field"><label>One date per line (YYYY-MM-DD)</label><textarea id="holidays" rows="7" placeholder="2026-12-25"></textarea></div>
+          <button class="btn pri" id="savepolicy">Save</button></div></div>
       </div>
+    </section>
+
+    <!-- ENFORCEMENT LOG -->
+    <section class="page" data-page="decisions">
+      <div class="crumb">Access control › Enforcement log</div>
+      <h1>Enforcement log</h1>
+      <div class="box flush"><div class="bh">Recent decisions (refreshes every 3 s)</div><div class="bb tw">
+        <table><thead><tr><th>Time</th><th>Card</th><th>Role</th><th>Dir</th><th>Result</th></tr></thead><tbody id="decbody"><tr><td class="empty" colspan="5">Swipes of enforced roles appear here.</td></tr></tbody></table></div></div>
+    </section>
+
+    <!-- REAL-TIME EVENTS -->
+    <section class="page" data-page="live">
+      <div class="crumb">Monitoring › Real-time events</div>
+      <h1>Real-time events</h1>
+      <p class="lead"><span class="led" id="sdot"></span><span id="sstat">connecting…</span></p>
+      <div class="box flush"><div class="bb tw" style="max-height:70vh"><table><thead><tr><th>Date</th><th>Time</th><th>Event</th><th>Name</th><th>Card</th><th>Door</th><th>Reader</th><th>Dir</th><th data-adv>Raw</th></tr></thead>
+        <tbody id="evbody"><tr><td class="empty" colspan="9">Events appear here as they happen.</td></tr></tbody></table></div></div>
+    </section>
+
+    <!-- ATTENDANCE -->
+    <section class="page" data-page="attendance">
+      <div class="crumb">Reports › Attendance</div>
+      <h1>Attendance</h1>
+      <div class="row noprint" style="margin-bottom:10px"><div class="nogrow" style="width:170px"><label>Day</label><input type="date" id="at-day"></div></div>
+      <div class="kpis" id="at-stats"></div>
+      <div class="box flush"><div class="bh">People</div><div class="bb tw">
+        <table><thead><tr><th>Name</th><th>Card</th><th>First in</th><th>Last out</th><th>Passes</th><th>Time inside</th><th>Now</th></tr></thead><tbody id="at-people"></tbody></table></div></div>
+      <div class="box flush"><div class="bh">Entry / exit log</div><div class="bb tw">
+        <table><thead><tr><th>Time</th><th>Name</th><th>Card</th><th>Dir</th><th>Result</th></tr></thead><tbody id="at-log"></tbody></table></div></div>
+    </section>
+
+    <!-- EVENT HISTORY / EXCEPTIONS -->
+    <section class="page" data-page="history">
+      <div class="crumb" id="h-crumb">Reports › Event history</div>
+      <h1 id="h-title">Event history</h1>
+      <div class="box noprint"><div class="bh">Filter</div><div class="bb"><div class="row">
+        <div><label>Period</label><select id="h-period"><option value="hour">Last hour</option><option value="today" selected>Today</option><option value="yesterday">Yesterday</option><option value="week">Last 7 days</option><option value="month">This month</option><option value="custom">From – to</option></select></div>
+        <div class="h-custom"><label>From</label><input type="date" id="h-from"></div>
+        <div class="h-custom"><label>To</label><input type="date" id="h-to"></div>
+        <div><label>Kind</label><select id="h-cat"><option value="all">All events</option><option value="granted">Access granted</option><option value="refused">Access refused</option><option value="access">All access</option><option value="alarm">Alarms</option><option value="system">System</option><option value="exceptions">Exceptions</option></select></div>
+        <div><label>Name or card</label><input id="h-who" placeholder="any"></div>
+        <div style="max-width:110px"><label>Door</label><select id="h-door"><option value="0">Any</option><option>1</option><option>2</option></select></div>
+        <button class="btn pri" id="h-run">Show</button></div></div></div>
+      <div class="box flush"><div class="bh"><span id="h-sum">—</span></div><div class="bb tw">
+        <table><thead><tr><th>Date</th><th>Time</th><th>Event</th><th>Name</th><th>Card</th><th>Door</th><th>Reader</th><th>Dir</th><th data-adv>Raw</th></tr></thead><tbody id="h-body"></tbody></table></div></div>
+    </section>
+
+    <!-- CONNECTION -->
+    <section class="page" data-page="settings">
+      <div class="crumb">System › Connection</div>
+      <h1>Connection</h1>
+      <div class="box" style="max-width:540px"><div class="bh">Middleware API</div><div class="bb">
+        <div class="field"><label>API address (blank = this server)</label><input id="s-base" placeholder="(same origin)"></div>
+        <div class="field"><label>API key</label><input id="s-key" type="password" placeholder="blank if the middleware has no API_KEY"></div>
+        <button class="btn pri" id="s-save">Save and reconnect</button>
+        <div class="hint">Kept in this browser only.</div></div></div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="page" data-page="about">
+      <div class="crumb">System › About</div>
+      <h1>About</h1>
+      <div class="box" style="max-width:640px"><div class="bh">Access Console</div><div class="bb"><dl class="kv" id="ab-kv"></dl>
+        <p class="hint" style="margin-top:10px">Menu layout follows AxTraxNG (menu bar, tree, event log, status bar) and ZKAccess 3.5 (Personnel, Device, Access control, Reports, System and its step-by-step start page). Simple mode shows the everyday items; Advanced adds access rules, the event log panel, raw data and device tools.</p></div></div>
     </section>
   </main>
 </div>
+
+<!-- EVENT LOG DOCK (AxTraxNG) -->
+<div id="dock" data-adv>
+  <div class="dockbar"><b>Event log</b>
+    <button class="tab on" data-dtab="all">All</button><button class="tab" data-dtab="access">Access</button><button class="tab" data-dtab="alarm">Alarms</button><button class="tab" data-dtab="system">System</button>
+    <span style="flex:1"></span><button class="tab" id="d-pause">Pause</button><button class="tab" id="d-clear">Clear</button><button class="tab" id="d-min">Hide</button></div>
+  <div class="dockbody"><table><thead><tr><th>Time</th><th>Event</th><th>Name</th><th>Card</th><th>Door</th><th>Dir</th></tr></thead><tbody id="dockbody"></tbody></table></div>
+</div>
+
+<!-- STATUS BAR -->
+<footer id="statusbar">
+  <span><i class="led" id="sb-led"></i><span id="sb-conn">connecting…</span></span>
+  <span id="sb-panel">Panel: —</span>
+  <span id="sb-writes">Writes: —</span>
+  <span id="sb-events">Events: 0</span>
+  <span id="sb-clock"></span>
+</footer>
 <div id="toasts"></div>
 
 <script>
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const store={get k(){return localStorage.getItem('c3_key')||''},set k(v){localStorage.setItem('c3_key',v)},
   get base(){return localStorage.getItem('c3_base')||''},set base(v){localStorage.setItem('c3_base',v)}};
-let CFG={allow_writes:false,roles:['none','student','teacher','administrator']};
+let CFG={allow_writes:false,roles:['none','student','teacher','administrator']}, DEV=null, NAMES={};
 
-function toast(msg,type){const t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;$('#toasts').append(t);setTimeout(()=>{t.style.opacity=0;t.style.transform='translateX(20px)';setTimeout(()=>t.remove(),200)},3200);}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-
+function toast(msg,type){const t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;$('#toasts').append(t);setTimeout(()=>t.remove(),3600);}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function ic(n){return `<svg class="ic"><use href="#i-${n}"/></svg>`;}
 async function api(path,opts={}){
   const h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
   if(store.k) h['Authorization']='Bearer '+store.k;
@@ -389,299 +552,518 @@ async function api(path,opts={}){
   if(!r.ok){const m=(body&&body.error)?body.error:(r.status+' '+r.statusText);throw new Error(m);}
   return body;
 }
+const today=()=>new Date().toLocaleDateString('en-CA');
+
+/* ---- tree: ZKAccess module order, AxTraxNG tree view; simple:1 = shown in Simple mode ---- */
+const TREE=[
+  {id:'home',label:'Home',icon:'home',simple:1},
+  {label:'Devices',icon:'panel',items:[
+    {id:'discover',label:'Find panels',icon:'search',simple:1},
+    {id:'panel',label:'Panel status',icon:'panel',simple:1},
+    {id:'doors',label:'Doors & outputs',icon:'door',simple:1},
+    {id:'params',label:'Parameters',icon:'sliders'},
+    {id:'tables',label:'Data tables',icon:'table'}]},
+  {label:'Personnel',icon:'users',items:[
+    {id:'people',label:'People & cards',icon:'card',simple:1},
+    {id:'import',label:'Import / export',icon:'import',simple:1}]},
+  {label:'Access control',icon:'shield',items:[
+    {id:'rules',label:'Access rules',icon:'clock'},
+    {id:'policy',label:'Holidays & policy',icon:'calendar'},
+    {id:'decisions',label:'Enforcement log',icon:'list'}]},
+  {label:'Monitoring',icon:'pulse',items:[
+    {id:'live',label:'Real-time events',icon:'pulse',simple:1}]},
+  {label:'Reports',icon:'report',items:[
+    {id:'attendance',label:'Attendance',icon:'clock',simple:1},
+    {id:'history',label:'Event history',icon:'list',simple:1},
+    {id:'exceptions',label:'Exceptions',icon:'alert'}]},
+  {label:'System',icon:'gear',items:[
+    {id:'settings',label:'Connection',icon:'plug',simple:1},
+    {id:'about',label:'About',icon:'info',simple:1}]},
+];
+const ALIAS={overview:'panel',cards:'people',device:'params',access:'rules'};
+const PAGE_OF={exceptions:'history'};
+const shut=JSON.parse(localStorage.getItem('ui_shut')||'{}');
+let current='home';
+const isSimple=()=>document.body.classList.contains('simple');
+
+function buildTree(){
+  const t=$('#tree');t.innerHTML='';
+  TREE.forEach(n=>{
+    if(!n.items){t.append(treeItem(n,true));return;}
+    const g=document.createElement('div');g.className='tg'+(shut[n.label]?' shut':'');
+    if(!n.items.some(i=>i.simple))g.dataset.adv='';
+    const h=document.createElement('div');h.className='tg-h';h.innerHTML=`<span class="twy">${shut[n.label]?'▸':'▾'}</span>${ic(n.icon)}${esc(n.label)}`;
+    h.onclick=()=>{shut[n.label]=!shut[n.label];localStorage.setItem('ui_shut',JSON.stringify(shut));buildTree();};
+    g.append(h);n.items.forEach(i=>g.append(treeItem(i)));t.append(g);
+  });
+}
+function treeItem(n,top){const d=document.createElement('div');d.className='ti'+(top?' top':'')+(n.id===current?' on':'');
+  if(!n.simple)d.dataset.adv='';d.innerHTML=ic(n.icon)+esc(n.label);
+  d.onclick=()=>{document.body.classList.remove('tree-open');go(n.id);};return d;}
+
+/* ---- toolbar: global buttons, then the selected page's own (AxTraxNG) ---- */
+const TOOLS={
+  discover:[['Run discovery','play',()=>runDiscover()]],
+  panel:[['Set panel time','sync',()=>syncClock()]],
+  doors:[['Refresh status','refresh',()=>loadDoorStatus()]],
+  people:[['Add person','plus',()=>{clearPerson();$('#c-name').focus();}],['Import','import',()=>go('import')],['Export','export',()=>exportPeople()]],
+  import:[['Template','export',()=>csvTemplate()],['Import all','play',()=>runImport()]],
+  rules:[['New role','plus',()=>clearRole()]],
+  policy:[['Save','check',()=>savePolicy()]],
+  live:[['Pause','pause',()=>togglePause()],['Clear','trash',()=>clearEvents()]],
+  attendance:[['CSV summary','export',()=>csvSummary()],['CSV log','export',()=>csvLog()],['Print','print',()=>print()]],
+  history:[['Show','play',()=>runHistory()],['Export CSV','export',()=>csvHistory()],['Print','print',()=>print()]],
+};
+TOOLS.exceptions=TOOLS.history;
+function buildToolbar(id){
+  const tb=$('#toolbar');tb.innerHTML='';
+  const add=(label,icon,fn)=>{const b=document.createElement('button');b.className='tb';b.title=label;b.setAttribute('aria-label',label);b.innerHTML=ic(icon)+`<span>${esc(label)}</span>`;b.onclick=fn;tb.append(b);return b;};
+  add('Home','home',()=>go('home'));add('Find panels','search',()=>go('discover'));
+  const wrap=document.createElement('div');wrap.className='mb tbm';
+  const n=(DEV&&DEV.doors)||2;
+  wrap.innerHTML=`<button class="tb">${ic('unlock')}<span>Open door</span>${ic('down')}</button><div class="menu">`+
+    Array.from({length:n},(_,i)=>`<button data-door="${i+1}"><span class="chk"></span>Door ${i+1}${doorHint(i+1)}<span class="k">5 s</span></button>`).join('')+
+    `<hr><button data-act="doors"><span class="chk"></span>Doors &amp; outputs…</button></div>`;
+  wrap.querySelectorAll('[data-door]').forEach(b=>b.onclick=()=>{closeMenus();openDoor(+b.dataset.door,5);});
+  wrap.querySelector('[data-act]').onclick=()=>{closeMenus();go('doors');};
+  wrap.firstChild.onclick=e=>{e.stopPropagation();const o=wrap.classList.contains('open');closeMenus();if(!o)wrap.classList.add('open');};
+  tb.append(wrap);
+  add('Refresh','refresh',()=>go(current));
+  if(TOOLS[id]){const s=document.createElement('span');s.className='tbsep';tb.append(s);TOOLS[id].forEach(t=>add(...t));}
+}
+function doorHint(n){return DEV&&/^AC-215/.test(DEV.device_name||'')?(n===1?' (entry)':' (exit)'):'';}
+
+/* ---- menus ---- */
+function closeMenus(){$$('.mb.open').forEach(m=>m.classList.remove('open'));}
+$$('#menubar .mb').forEach(m=>{
+  const b=m.firstElementChild;
+  b.onclick=e=>{e.stopPropagation();const o=m.classList.contains('open');closeMenus();if(!o)m.classList.add('open');};
+  b.onmouseenter=()=>{if($('#menubar .mb.open')&&!m.classList.contains('open')){closeMenus();m.classList.add('open');}};
+});
+document.addEventListener('click',e=>{closeMenus();if(!e.target.closest('#tree'))document.body.classList.remove('tree-open');});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closeMenus();
+  if(e.key==='F5'){e.preventDefault();go(current);}
+  if(e.altKey&&(e.key==='h'||e.key==='H')){e.preventDefault();go('home');}
+});
+const ACT={home:()=>go('home'),settings:()=>go('settings'),about:()=>go('about'),discover:()=>go('discover'),import:()=>go('import'),
+  params:()=>go('params'),tables:()=>go('tables'),doors:()=>go('doors'),refresh:()=>go(current),print:()=>print(),
+  exportPeople:()=>exportPeople(),exportEvents:()=>{go('history');toast('Pick the period, then Export CSV');},
+  simple:()=>setMode('simple'),advanced:()=>setMode('advanced'),dock:()=>toggleDock(),light:()=>setTheme('light'),dark:()=>setTheme('dark'),
+  sync:()=>syncClock(),door1:()=>openDoor(1,5),door2:()=>openDoor(2,5)};
+$$('#menubar [data-act]').forEach(b=>b.onclick=()=>{closeMenus();ACT[b.dataset.act]();});
+function markMenus(){
+  const on={simple:isSimple(),advanced:!isSimple(),dock:!$('#dock').classList.contains('min'),
+    light:document.documentElement.dataset.theme!=='dark',dark:document.documentElement.dataset.theme==='dark'};
+  $$('[data-check]').forEach(c=>c.textContent=on[c.dataset.check]?'✓':'');
+  $$('#modesw button').forEach(b=>b.classList.toggle('on',(b.dataset.mode==='simple')===isSimple()));
+}
+function setMode(m){document.body.classList.toggle('simple',m==='simple');localStorage.setItem('ui_mode',m);markMenus();buildTree();
+  const item=TREE.flatMap(n=>n.items||[n]).find(i=>i.id===current);if(m==='simple'&&item&&!item.simple)go('home');}
+function setTheme(t){document.documentElement.dataset.theme=t;localStorage.setItem('c3_theme',t);markMenus();}
+function toggleDock(){$('#dock').classList.toggle('min');localStorage.setItem('ui_dock',$('#dock').classList.contains('min')?'min':'');$('#d-min').textContent=$('#dock').classList.contains('min')?'Show':'Hide';markMenus();}
+$$('#modesw button').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$('#treebtn').onclick=e=>{e.stopPropagation();document.body.classList.toggle('tree-open');};
 
 /* ---- navigation ---- */
-const PAGES=[['discover','⌕','Discover'],['overview','▤','Overview'],['live','◉','Live events'],['attendance','◷','Attendance'],['cards','▦','Cards & roles'],
-  ['access','⏱','Access rules'],['doors','⊞','Doors'],['tables','☰','Data tables'],['device','⚙','Device'],['settings','⚙','Settings']];
-const nav=$('#nav');
-PAGES.forEach(([id,ico,label])=>{const b=document.createElement('button');b.dataset.go=id;b.innerHTML=`<span class="ico">${ico}</span>${label}`;b.onclick=()=>go(id);nav.append(b);});
-function go(id){$$('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===id));$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.go===id));location.hash=id;
-  if(id==='overview')loadOverview(); if(id==='cards')loadCards(); if(id==='tables')loadTables(); if(id==='doors')loadDoorStatus(); if(id==='access')loadAccess();
-  if(id!=='access')stopDecisionPoll();
-  clearInterval(atTimer); if(id==='attendance'){loadAttendance();atTimer=setInterval(loadAttendance,5000);}
-  if(id==='discover'&&!discRan)runDiscover();}
+let atTimer=null,decTimer=null,discRan=false;
+function go(id){
+  id=ALIAS[id]||id;
+  if(!TREE.flatMap(n=>n.items||[n]).some(i=>i.id===id))id='home';
+  const page=PAGE_OF[id]||id;
+  current=id;
+  $$('.page').forEach(p=>p.classList.toggle('on',p.dataset.page===page));
+  buildTree();
+  if(location.hash.slice(1)!==id)history.replaceState(null,'','#'+id);
+  buildToolbar(id);
+  clearInterval(atTimer);stopDecisionPoll();
+  ({home:loadHome,discover:()=>{if(!discRan)runDiscover();},panel:loadOverview,doors:loadDoorStatus,tables:loadTables,
+    people:loadCards,rules:loadAccess,policy:loadAccess,decisions:startDecisionPoll,about:loadAbout,
+    attendance:()=>{loadAttendance();atTimer=setInterval(loadAttendance,5000);},
+    history:()=>{if($('#h-cat').value==='exceptions')$('#h-cat').value='all';historyTitle();runHistory();},
+    exceptions:()=>{$('#h-cat').value='exceptions';historyTitle();runHistory();}}[id]||(()=>{}))();
+  $('#display').scrollTop=0;
+}
 
-/* ---- discover: adapters on the network, then every RS-485 bus address ---- */
-let discRan=false;
+/* ---- home (ZKAccess "Navigation") ---- */
+async function loadHome(){
+  const [cfg,users,evs,acc]=await Promise.all([api('/config').catch(()=>null),api('/users').catch(()=>[]),dayEvents(today()).catch(()=>[]),api('/access/config').catch(()=>null)]);
+  const s=summarize(evs,true);
+  const set=(n,done,html)=>{$('#st'+n).classList.toggle('done',!!done);$('#h-s'+n).innerHTML=html;};
+  set(1,cfg&&cfg.panel_connected,cfg&&cfg.panel_connected?`Connected to <b>${esc(DEV?DEV.device_name:'the panel')}</b>${DEV&&DEV.firmware?'<br><span class="mono">'+esc(DEV.firmware)+'</span>':''}`:'<span class="err">No panel connected yet.</span> Check the adapter and run Find panels.');
+  set(2,users.length,users.length?`<b>${users.length}</b> people enrolled.`:'Nobody enrolled yet.');
+  set(3,acc&&acc.enabled,acc&&acc.enabled?'Time rules are on for enforced roles.':'Optional. Without rules every enrolled card passes at any time.');
+  set(4,s.ins+s.outs,`Today: <b>${s.ins}</b> entries, <b>${s.outs}</b> exits, <b>${s.people.filter(p=>p.now==='in').length}</b> inside now.`);
+  $('#h-kpis').innerHTML=kpis([['Entries today',s.ins],['Exits today',s.outs],['Inside now',s.people.filter(p=>p.now==='in').length],['Refused today',s.denied]]);
+  $('#h-doors').innerHTML='';
+  for(let i=1;i<=((DEV&&DEV.doors)||2);i++){const b=document.createElement('button');b.className='btn pri';b.innerHTML=ic('unlock')+'Open door '+i+doorHint(i);b.onclick=()=>openDoor(i,+$('#h-sec').value||5);$('#h-doors').append(b);}
+  renderRecent();
+}
+const kpis=a=>a.map(([l,n])=>`<div class="kpi"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('');
+
+/* ---- find panels ---- */
 async function runDiscover(){
   discRan=true;$('#disc-run').disabled=true;
   $('#disc-1').innerHTML='<div class="empty">Asking the network…</div>';$('#disc-3').innerHTML='<div class="empty">Waiting…</div>';
   try{
     const cfg=await api('/config');
-    $('#disc-2').innerHTML=cfg.panel_connected?'<span class="ev-in">● Connected</span>':'<span class="ev-deny">● Not connected yet</span>';
+    $('#disc-2').innerHTML=cfg.panel_connected?'<span class="ok">Connected</span>':'<span class="err">Not connected yet</span>';
     $('#disc-3').innerHTML='<div class="empty">Asking addresses 1–32 (about 15 s)…</div>';
     const d=await api('/discover',{method:'POST'});
     $('#disc-bus').textContent=d.bus;
-    $('#disc-1').innerHTML=d.adapters.length?d.adapters.map(a=>`<div class="pill" style="margin:2px 0">${esc(a.ip)} · ${esc(a.mac)}${a.model?' · '+esc(a.model):''}</div>`).join('<br>')
-      :'<div class="empty">No adapter answered (it may be on another subnet). The configured address is used.</div>';
-    $('#disc-3').innerHTML=`<span class="${d.panels.length?'ev-in':'ev-deny'}">● ${d.panels.length} panel${d.panels.length===1?'':'s'} answered</span>`;
-    $('#disc-found').innerHTML=d.panels.length?d.panels.map(p=>`<tr><td class="mono">${p.address}</td><td class="mono">${esc(p.firmware)}</td><td class="mono">${p.reply_ms} ms</td><td>${p.address===d.in_use?'<span class="ev-in">● in use</span>':'found'}</td></tr>`).join('')
+    $('#disc-1').innerHTML=d.adapters.length?d.adapters.map(a=>`<div class="mono">${esc(a.ip)} · ${esc(a.mac)}${a.model?' · '+esc(a.model):''}</div>`).join('')
+      :'<div class="hint">No adapter answered (it may be on another subnet). The configured address is used.</div>';
+    $('#disc-3').innerHTML=`<span class="${d.panels.length?'ok':'err'}">${d.panels.length} panel${d.panels.length===1?'':'s'} answered</span>`;
+    $('#disc-found').innerHTML=d.panels.length?d.panels.map(p=>`<tr><td class="mono">${p.address}</td><td class="mono">${esc(p.firmware)}</td><td class="mono">${p.reply_ms} ms</td><td>${p.address===d.in_use?'<span class="ok">In use</span>':'Found'}</td></tr>`).join('')
       :'<tr><td class="empty" colspan="4">No panel answered. Check L1/L2 (swap them if the TX LED stays dark), the DIP baud switches and the adapter\'s 9600 8N1 setting.</td></tr>';
-  }catch(e){$('#disc-3').innerHTML='<div class="empty">'+esc(e.message)+'</div>';$('#disc-1').innerHTML='<div class="empty">—</div>';}
-  $('#disc-run').disabled=false;}
+  }catch(e){$('#disc-3').innerHTML='<div class="err">'+esc(e.message)+'</div>';$('#disc-1').innerHTML='<div class="empty">—</div>';}
+  $('#disc-run').disabled=false;
+}
 
-/* ---- overview ---- */
+/* ---- panel status ---- */
 async function loadOverview(){
   try{
     const [dev,st,cfg]=await Promise.all([api('/device'),api('/status').catch(()=>null),api('/config')]);
-    CFG=cfg; applyCfg();
+    CFG=cfg;DEV=dev;applyCfg();
     $('#device').innerHTML=Object.entries({'Model':dev.device_name,'Serial':dev.serial_number,'Firmware':dev.firmware,'MAC':dev.mac,'IP':dev.ip_address,'Doors':dev.doors}).map(([k,v])=>`<dt>${k}</dt><dd>${esc(v||'—')}</dd>`).join('');
     renderDoorStatus(st,'#doorstatus');
     const met=await api('/metrics').catch(()=>'');
-    const g=k=>{const m=met.match(new RegExp(k+'\\s+([0-9]+)'));return m?m[1]:'—';};
-    $('#stats').innerHTML=[
-      ['Panel',cfg.panel_connected?'Online':'Offline','conn'],
-      ['Events',g('zc3_events_total'),''],
-      ['Requests',g('zc3_http_requests_total'),''],
-      ['Writes',cfg.allow_writes?'Enabled':'Locked','']
-    ].map(([l,n])=>`<div class="card stat"><div class="n">${esc(n)}</div><div class="l">${l}</div></div>`).join('');
+    const g=k=>{const m=String(met).match(new RegExp(k+'\\s+([0-9]+)'));return m?m[1]:'—';};
+    $('#stats').innerHTML=kpis([['Panel',cfg.panel_connected?'Online':'Offline'],['Events since start',g('zc3_events_total')],['API requests',g('zc3_http_requests_total')],['Writes',cfg.allow_writes?'Enabled':'Locked']]);
   }catch(e){toast(e.message,'err');}
 }
 function renderDoorStatus(st,sel){
-  const el=$(sel); if(!st||!st.doors){el.innerHTML='<div class="empty">No status.</div>';return;}
-  el.innerHTML='<div class="grid g2">'+st.doors.map(d=>`<div class="pill" style="justify-content:space-between;width:100%">Door ${d.door}<span>${d.relay_on?'🔓 relay on':'🔒 locked'} · ${d.sensor_on?'sensor':'—'}</span></div>`).join('')+'</div>';
-}
-
-/* ---- cards ---- */
-async function loadCards(){
-  try{
-    const users=await api('/users');
-    $('#cardcount').textContent=users.length;
-    const tb=$('#cardbody');
-    if(!users.length){tb.innerHTML='<tr><td class="empty" colspan="7">No cards enrolled.</td></tr>';return;}
-    tb.innerHTML=users.map(u=>{
-      const doors=(u.auth||[]).flatMap(a=>a.doors||[]);
-      const role=u.role||'none';
-      return `<tr>
-        <td>${esc(u.name||'—')}</td>
-        <td class="mono">${esc(u.card_no)}</td>
-        <td class="mono">${esc(u.pin)}</td>
-        <td><span class="badge b-${esc(role)}">${esc(role)}</span></td>
-        <td class="mono">${doors.join(', ')||'—'}</td>
-        <td>${u.disabled?'<span class="pill" style="color:var(--err)">disabled</span>':'<span class="pill" style="color:var(--ok)">active</span>'}</td>
-        <td style="text-align:right"><button class="btn sm danger" data-del="${esc(u.card_no)}" data-name="${esc(u.name||u.card_no)}">Revoke</button></td>
-      </tr>`;}).join('');
-    $$('#cardbody [data-del]').forEach(b=>b.onclick=()=>revoke(b.dataset.del,b.dataset.name));
-  }catch(e){toast(e.message,'err');}
-}
-async function enroll(){
-  const doors=$$('#c-doors input:checked').map(c=>+c.value);
-  const card={name:$('#c-name').value.trim(),card_no:$('#c-card').value.trim(),pin:$('#c-pin').value.trim(),role:$('#c-role').value,timezone:+$('#c-tz').value||1,doors};
-  if(!card.card_no){toast('Card number is required','err');return;}
-  try{await api('/cards',{method:'POST',body:JSON.stringify(card)});toast('Enrolled '+(card.name||card.card_no),'ok');$('#c-name').value='';$('#c-card').value='';$('#c-pin').value='';loadCards();}
-  catch(e){toast(e.message,'err');}
-}
-async function revoke(cardNo,name){
-  if(!confirm('Revoke card for '+name+'?'))return;
-  try{await api('/cards/'+encodeURIComponent(cardNo),{method:'DELETE'});toast('Revoked '+name,'ok');loadCards();}
-  catch(e){toast(e.message,'err');}
+  const el=$(sel);
+  if(!st||!st.doors){el.innerHTML=st&&st.raw?`<div class="hint">Raw status bytes from the last poll:</div><div class="mono">${esc(st.raw)}</div>`:'<div class="empty">No status.</div>';return;}
+  el.innerHTML='<table><thead><tr><th>Door</th><th>Lock</th><th>Sensor</th></tr></thead><tbody>'+st.doors.map(d=>`<tr><td>Door ${d.door}</td><td>${d.relay_on?'<span class="warn">Unlocked</span>':'Locked'}</td><td>${d.sensor_on?'Open':'Closed'}</td></tr>`).join('')+'</tbody></table>';
 }
 
 /* ---- doors ---- */
 async function loadDoorStatus(){try{const st=await api('/status');renderDoorStatus(st,'#doorstatus2');}catch(e){$('#doorstatus2').innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
-function buildDoorBtns(n){$('#doorbtns').innerHTML='';for(let i=1;i<=(n||2);i++){const b=document.createElement('button');b.className='btn pri';b.textContent='Open door '+i;b.onclick=()=>openDoor(i);$('#doorbtns').append(b);}}
-async function openDoor(n){try{const r=await api('/doors/'+n+'/open',{method:'POST',body:JSON.stringify({seconds:+$('#d-sec').value||5})});toast('Door '+n+' opened '+r.seconds+'s','ok');}catch(e){toast(e.message,'err');}}
+function buildDoorBtns(n){$('#doorbtns').innerHTML='';for(let i=1;i<=(n||2);i++){const b=document.createElement('button');b.className='btn pri';b.innerHTML=ic('unlock')+'Open door '+i+doorHint(i);b.onclick=()=>openDoor(i,+$('#d-sec').value||5);$('#doorbtns').append(b);}}
+async function openDoor(n,sec){try{const r=await api('/doors/'+n+'/open',{method:'POST',body:JSON.stringify({seconds:sec||5})});toast('Door '+n+' opened for '+r.seconds+' s','ok');}catch(e){toast(e.message,'err');}}
+async function syncClock(){try{await api('/time/sync',{method:'POST'});toast('Panel time set to this server\'s time','ok');}catch(e){toast(e.message,'err');}}
 
-/* ---- tables ---- */
-async function loadTables(){try{const names=await api('/tables');const sel=$('#t-name');if(sel.dataset.done)return;sel.innerHTML=names.map(n=>`<option>${esc(n)}</option>`).join('');sel.dataset.done='1';}catch(e){toast(e.message,'err');}}
+/* ---- data tables, parameters ---- */
+async function loadTables(){try{const names=await api('/tables');const sel=$('#t-name');if(sel.dataset.done)return;sel.innerHTML=names.map(n=>`<option>${esc(n)}</option>`).join('');sel.dataset.done='1';}catch(e){$('#t-out').innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
 async function loadTable(){const name=$('#t-name').value;try{const rows=await api('/tables/'+name);const out=$('#t-out');if(!rows||!rows.length){out.innerHTML='<div class="empty">Empty table.</div>';return;}const cols=Object.keys(rows[0]);out.innerHTML=`<table><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${cols.map(c=>`<td class="mono">${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;}catch(e){$('#t-out').innerHTML='<div class="empty">'+esc(e.message)+'</div>';}}
-
-/* ---- device ---- */
 async function getParams(){const keys=$('#p-keys').value.trim();try{const m=await api('/params'+(keys?'?keys='+encodeURIComponent(keys):''));$('#p-out').style.display='block';$('#p-out').textContent=JSON.stringify(m,null,2);}catch(e){toast(e.message,'err');}}
 async function setParam(){const k=$('#p-k').value.trim();if(!k){toast('Key required','err');return;}try{await api('/params',{method:'PUT',body:JSON.stringify({[k]:$('#p-v').value})});toast('Parameter set','ok');}catch(e){toast(e.message,'err');}}
 
-/* ---- live events (SSE over fetch, supports auth header) ---- */
-let streaming=false,abort=null;
-async function toggleStream(){if(streaming){abort&&abort.abort();return;}
-  streaming=true;abort=new AbortController();
-  $('#streamtoggle').textContent='Stop stream';$('#sdot').classList.add('live');$('#sstat').textContent='live';
-  const users=await api('/users').catch(()=>[]);const names={};users.forEach(u=>names[u.card_no]=u.name);
-  if($('#evbody').children[0]&&$('#evbody').children[0].querySelector('.empty'))$('#evbody').innerHTML='';
+/* ---- people ---- */
+let USERS=[];
+async function loadCards(){
   try{
-    const h={};if(store.k)h['Authorization']='Bearer '+store.k;
-    const r=await fetch(store.base+'/events',{headers:h,signal:abort.signal});
-    const rd=r.body.getReader();const dec=new TextDecoder();let buf='';
-    while(true){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
-      let idx;while((idx=buf.indexOf('\n\n'))>=0){const chunk=buf.slice(0,idx);buf=buf.slice(idx+2);
-        const line=chunk.split('\n').find(l=>l.startsWith('data:'));if(line){try{addEvent(JSON.parse(line.slice(5).trim()),names);}catch(_){}}}}
-  }catch(e){if(e.name!=='AbortError')toast('Stream: '+e.message,'err');}
-  streaming=false;$('#streamtoggle').textContent='Start stream';$('#sdot').classList.remove('live');$('#sstat').textContent='stopped';
+    USERS=await api('/users');NAMES={};USERS.forEach(u=>NAMES[u.card_no]=u.name);
+    $('#cardcount').textContent=USERS.length;renderCards();
+  }catch(e){toast(e.message,'err');}
 }
-function addEvent(ev,names){
-  const tb=$('#evbody');const tr=document.createElement('tr');
-  const denied=/Denied|Unregistered|Illegal|Expired|Error/i.test(ev.event_name||'');
-  const dir=ev.in_out==='in'?'<span class="ev-in">▸ in</span>':ev.in_out==='out'?'<span class="ev-out">◂ out</span>':'—';
-  const t=(ev.time||'').replace('T',' ').slice(0,19);
-  tr.innerHTML=`<td class="mono">${esc(t)}</td><td class="mono">${esc(ev.card_no||'—')}</td><td>${esc(names[ev.card_no]||'')}</td><td class="mono">${esc(ev.reader??'—')}</td><td>${dir}</td><td class="${denied?'ev-deny':''}">${esc(ev.event_name||ev.event_type)}</td>`;
-  tb.prepend(tr);while(tb.children.length>200)tb.lastChild.remove();
+function renderCards(){
+  const q=$('#c-filter').value.trim().toLowerCase(), tb=$('#cardbody');
+  const list=USERS.filter(u=>!q||(u.name||'').toLowerCase().includes(q)||String(u.card_no).includes(q));
+  if(!list.length){tb.innerHTML=`<tr><td class="empty" colspan="7">${USERS.length?'No match.':'Nobody enrolled yet.'}</td></tr>`;return;}
+  tb.innerHTML=list.map(u=>{const doors=(u.auth||[]).flatMap(a=>a.doors||[]);
+    return `<tr><td>${esc(u.name||'—')}</td><td class="mono">${esc(u.card_no)}</td><td class="mono" data-adv>${esc(u.pin)}</td>
+      <td><span class="tag">${esc(u.role||'none')}</span></td><td class="mono">${doors.join(', ')||'—'}</td>
+      <td>${u.disabled?'<span class="err">Disabled</span>':'<span class="ok">Active</span>'}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-edit="${esc(u.card_no)}">Edit</button> <button class="btn sm danger" data-del="${esc(u.card_no)}" data-name="${esc(u.name||u.card_no)}">Remove</button></td></tr>`;}).join('');
+  $$('#cardbody [data-del]').forEach(b=>b.onclick=()=>revoke(b.dataset.del,b.dataset.name));
+  $$('#cardbody [data-edit]').forEach(b=>b.onclick=()=>editPerson(b.dataset.edit));
 }
+function buildDoorChecks(){
+  const n=(DEV&&DEV.doors)||2, box=$('#c-doors');if(box.childElementCount===n)return;
+  box.innerHTML=Array.from({length:n},(_,i)=>`<label><input type="checkbox" value="${i+1}" checked> Door ${i+1}${doorHint(i+1)}</label>`).join('');
+}
+function editPerson(card){const u=USERS.find(x=>x.card_no===card);if(!u)return;
+  $('#c-title').textContent='Edit '+(u.name||u.card_no);$('#c-name').value=u.name||'';$('#c-card').value=u.card_no;$('#c-pin').value=u.pin||'';
+  if(u.role)$('#c-role').value=u.role;const doors=(u.auth||[]).flatMap(a=>a.doors||[]);const tz=(u.auth||[])[0];$('#c-tz').value=tz?tz.timezone_id||1:1;
+  $$('#c-doors input').forEach(c=>c.checked=!doors.length||doors.includes(+c.value));$('#c-name').focus();}
+function clearPerson(){$('#c-title').textContent='Add person';['#c-name','#c-card','#c-pin'].forEach(s=>$(s).value='');$('#c-tz').value=1;$$('#c-doors input').forEach(c=>c.checked=true);}
+async function enroll(){
+  const doors=$$('#c-doors input:checked').map(c=>+c.value);
+  const card={name:$('#c-name').value.trim(),card_no:$('#c-card').value.trim(),pin:$('#c-pin').value.trim(),role:$('#c-role').value,timezone:+$('#c-tz').value||1,doors};
+  if(!/^\d+$/.test(card.card_no)){toast('Card number must be digits','err');return;}
+  if(!doors.length){toast('Tick at least one door','err');return;}
+  try{await api('/cards',{method:'POST',body:JSON.stringify(card)});toast('Saved '+(card.name||card.card_no),'ok');clearPerson();loadCards();}
+  catch(e){toast(e.message,'err');}
+}
+async function revoke(cardNo,name){
+  if(!confirm('Remove '+name+'? Their card stops working on the panel.'))return;
+  try{await api('/cards/'+encodeURIComponent(cardNo),{method:'DELETE'});toast('Removed '+name,'ok');loadCards();}
+  catch(e){toast(e.message,'err');}
+}
+async function exportPeople(){try{const us=await api('/users');
+  csv('people-'+today()+'.csv',[['name','card_no','role','doors','pin','status'],...us.map(u=>[u.name,u.card_no,u.role,(u.auth||[]).flatMap(a=>a.doors||[]).join(';'),u.pin,u.disabled?'disabled':'active'])]);}catch(e){toast(e.message,'err');}}
 
-/* ---- attendance: granted in/out passes per person for one day, from the audit log ---- */
-const DENIED=/Denied|Unregistered|Illegal|Expired|Error/i;
-let atTimer=null, AT={people:[],log:[],day:''};
-async function dayEvents(day){ // history is newest first, 1000 per page
-  let out=[];
-  for(let off=0;off<10000;off+=1000){
-    const page=await api('/events/history?limit=1000&offset='+off);
-    out=out.concat(page.filter(e=>(e.time||'').slice(0,10)===day));
-    if(page.length<1000||(page[page.length-1].time||'')<day)break;
-  }
-  return out.filter(e=>e.in_out&&e.card_no&&e.card_no!=='0');
+/* ---- import (ZKAccess "Batch Add", AxTraxNG "Import/Export Data") ---- */
+let IMPORT=[];
+function parseCSV(text){const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++;}else q=false;}else f+=c;}
+    else if(c==='"')q=true; else if(c===','){row.push(f);f='';}
+    else if(c==='\n'){row.push(f);rows.push(row);row=[];f='';} else if(c!=='\r')f+=c;}
+  if(f||row.length){row.push(f);rows.push(row);}
+  return rows.map(r=>r.map(s=>s.trim())).filter(r=>r.some(Boolean));}
+function previewImport(){
+  const rows=parseCSV($('#im-text').value);if(!rows.length){toast('Nothing to read','err');return;}
+  let cols={name:0,card_no:1,role:2,doors:3,pin:4};
+  if(rows[0].some(c=>/card/i.test(c))){const h=rows.shift().map(c=>c.toLowerCase());cols={};
+    h.forEach((c,i)=>{if(/name/.test(c))cols.name=i;else if(/card/.test(c))cols.card_no=i;else if(/role|group/.test(c))cols.role=i;else if(/door/.test(c))cols.doors=i;else if(/pin|id/.test(c))cols.pin=i;});}
+  rows.forEach(r=>IMPORT.push({name:r[cols.name]||'',card_no:(r[cols.card_no]||'').replace(/\D/g,''),role:r[cols.role]||'',doors:((r[cols.doors]||'').match(/\d/g)||['1','2']).map(Number),pin:r[cols.pin]||'',result:''}));
+  renderImport();
 }
-function hms(ms){const m=Math.round(ms/60000);return m<1?'—':Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m';}
-async function loadAttendance(){
-  const day=$('#at-day').value;
+function addRange(){
+  const start=Number($('#rg-start').value),count=Math.min(+$('#rg-count').value||0,1000),pre=$('#rg-prefix').value.trim();
+  if(!Number.isSafeInteger(start)||start<=0||count<=0){toast('Enter the first card number and how many','err');return;}
+  for(let i=0;i<count;i++)IMPORT.push({name:(pre?pre+' ':'')+(i+1),card_no:String(start+i),role:$('#rg-role').value,doors:[1,2],pin:'',result:''});
+  renderImport();
+}
+function renderImport(){
+  $('#im-count').textContent=IMPORT.length;
+  $('#im-body').innerHTML=IMPORT.length?IMPORT.map((p,i)=>{const bad=!/^\d+$/.test(p.card_no);
+    return `<tr><td class="mono">${i+1}</td><td>${esc(p.name)}</td><td class="mono ${bad?'err':''}">${esc(p.card_no||'missing')}</td><td>${esc(p.role||'none')}</td><td class="mono">${p.doors.join(', ')}</td><td class="${/^Added/.test(p.result)?'ok':p.result?'err':''}">${esc(p.result||(bad?'Card number missing':''))}</td></tr>`;}).join('')
+    :'<tr><td class="empty" colspan="6">Load a CSV or add a range.</td></tr>';
+}
+let importing=false;
+async function runImport(){
+  if(importing)return;const todo=IMPORT.filter(p=>!/^Added/.test(p.result)&&/^\d+$/.test(p.card_no));
+  if(!todo.length){toast('Nothing to import','err');return;}
+  importing=true;$('#im-run').disabled=true;let ok=0,bad=0;$('#im-prog').max=todo.length;
+  for(const p of todo){
+    try{await api('/cards',{method:'POST',body:JSON.stringify({name:p.name,card_no:p.card_no,role:p.role,pin:p.pin,doors:p.doors})});p.result='Added';ok++;}
+    catch(e){p.result=e.message;bad++;}
+    $('#im-prog').value=ok+bad;$('#im-stat').textContent=`${ok+bad} of ${todo.length}: ${ok} added${bad?', '+bad+' failed':''}`;
+    if((ok+bad)%10===0||ok+bad===todo.length)renderImport();
+  }
+  importing=false;$('#im-run').disabled=false;renderImport();toast(`Import done: ${ok} added${bad?', '+bad+' failed':''}`,bad?'err':'ok');refreshNames();
+}
+function csvTemplate(){csv('people-template.csv',[['name','card_no','role','doors','pin'],['Sara Hassan','8065590','student','1;2',''],['Ahmed Ali','8065589','teacher','1;2','']]);}
+
+/* ---- events: one stream feeds the dock, the real-time page and home ---- */
+const DENIED=/Denied|Unregistered|Illegal|Expired|Error|refused/i;
+const RECENT=[];let paused=false,evCount=0,dtab='all';
+function cat(e){const n=e.event_name||'';
+  if(/alarm|siren|forced|tamper|duress|held open/i.test(n))return 'alarm';
+  if((e.card_no&&e.card_no!=='0')||/access|punch|card|pin|verify|granted|denied/i.test(n))return 'access';
+  return 'system';}
+function exceptional(e){return DENIED.test(e.event_name||'')||cat(e)==='alarm'||/fail|low battery|memory (full|low)|factory|forced|tamper/i.test(e.event_name||'');}
+const dirCell=e=>e.in_out==='in'?'<span class="in">In</span>':e.in_out==='out'?'<span class="out">Out</span>':'—';
+const evCls=e=>DENIED.test(e.event_name||'')||cat(e)==='alarm'?'err':'';
+function fullRow(e){const t=e.time||'';
+  return `<td class="mono">${esc(t.slice(0,10))}</td><td class="mono">${esc(t.slice(11,19))}</td><td class="${evCls(e)}">${esc(e.event_name||e.event_type)}</td><td>${esc(NAMES[e.card_no]||'')}</td><td class="mono">${esc(e.card_no||'')}</td><td class="mono">${e.door||''}</td><td class="mono">${e.reader||''}</td><td>${dirCell(e)}</td><td class="mono" data-adv>${esc(e.raw||'')}</td>`;}
+function dockRow(e){return `<td class="mono">${esc((e.time||'').slice(11,19))}</td><td class="${evCls(e)}">${esc(e.event_name||e.event_type)}</td><td>${esc(NAMES[e.card_no]||'')}</td><td class="mono">${esc(e.card_no||'')}</td><td class="mono">${e.door||''}</td><td>${dirCell(e)}</td>`;}
+function onEvent(e){
+  evCount++;$('#sb-events').textContent='Events: '+evCount;
+  RECENT.unshift(e);if(RECENT.length>300)RECENT.pop();
+  if(paused)return;
+  const lb=$('#evbody');if(lb.querySelector('.empty'))lb.innerHTML='';
+  const tr=document.createElement('tr');tr.innerHTML=fullRow(e);lb.prepend(tr);while(lb.children.length>300)lb.lastChild.remove();
+  if(dtab==='all'||cat(e)===dtab){const d=document.createElement('tr');d.innerHTML=dockRow(e);$('#dockbody').prepend(d);while($('#dockbody').children.length>200)$('#dockbody').lastChild.remove();}
+  if(current==='home')renderRecent();
+}
+function renderDock(){$('#dockbody').innerHTML=RECENT.filter(e=>dtab==='all'||cat(e)===dtab).slice(0,200).map(e=>`<tr>${dockRow(e)}</tr>`).join('');}
+function renderRecent(){$('#h-recent').innerHTML=RECENT.length?RECENT.slice(0,8).map(e=>`<tr><td class="mono">${esc((e.time||'').slice(11,19))}</td><td class="${evCls(e)}">${esc(e.event_name||e.event_type)}</td><td>${esc(NAMES[e.card_no]||e.card_no||'')}</td><td>${dirCell(e)}</td></tr>`).join(''):'<tr><td class="empty" colspan="4">No events since this page opened.</td></tr>';}
+function togglePause(){paused=!paused;$('#d-pause').textContent=paused?'Resume':'Pause';toast(paused?'Event display paused (events are still recorded)':'Event display resumed');if(!paused)renderDock();}
+function clearEvents(){$('#evbody').innerHTML='<tr><td class="empty" colspan="9">Cleared.</td></tr>';$('#dockbody').innerHTML='';RECENT.length=0;renderRecent();}
+async function refreshNames(){const us=await api('/users').catch(()=>null);if(us){NAMES={};us.forEach(u=>NAMES[u.card_no]=u.name);}}
+async function stream(){
+  for(;;){
+    try{
+      const h={};if(store.k)h['Authorization']='Bearer '+store.k;
+      const r=await fetch(store.base+'/events',{headers:h});if(!r.ok)throw new Error(r.status);
+      $('#sdot').className='led up';$('#sstat').textContent='Live: new events appear at the top.';
+      const rd=r.body.getReader(),dec=new TextDecoder();let buf='';
+      for(;;){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+        let i;while((i=buf.indexOf('\n\n'))>=0){const chunk=buf.slice(0,i);buf=buf.slice(i+2);
+          const line=chunk.split('\n').find(l=>l.startsWith('data:'));if(line){try{onEvent(JSON.parse(line.slice(5).trim()));}catch(_){}}}}
+    }catch(e){}
+    $('#sdot').className='led down';$('#sstat').textContent='Reconnecting to the event stream…';
+    await new Promise(r=>setTimeout(r,3000));
+  }
+}
+$$('[data-dtab]').forEach(b=>b.onclick=()=>{dtab=b.dataset.dtab;$$('[data-dtab]').forEach(x=>x.classList.toggle('on',x===b));renderDock();});
+
+/* ---- history reads the audit log, newest first, 1000 per page ---- */
+async function eventsSince(from){let out=[];
+  for(let off=0;off<10000;off+=1000){const page=await api('/events/history?limit=1000&offset='+off);out=out.concat(page);
+    if(page.length<1000||new Date(page[page.length-1].time)<from)break;}
+  return out;}
+async function dayEvents(day){const from=new Date(day+'T00:00:00');
+  return (await eventsSince(from)).filter(e=>(e.time||'').slice(0,10)===day&&e.in_out&&e.card_no&&e.card_no!=='0');}
+let HIST=[];
+function historyTitle(){const ex=$('#h-cat').value==='exceptions';$('#h-title').textContent=ex?'Exceptions':'Event history';$('#h-crumb').textContent='Reports › '+(ex?'Exceptions':'Event history');}
+function periodRange(){const p=$('#h-period').value,now=new Date(),d0=new Date(now);d0.setHours(0,0,0,0);
+  if(p==='hour')return [new Date(now-3600e3),now];
+  if(p==='yesterday'){const y=new Date(d0);y.setDate(y.getDate()-1);return [y,d0];}
+  if(p==='week'){const w=new Date(d0);w.setDate(w.getDate()-6);return [w,now];}
+  if(p==='month')return [new Date(now.getFullYear(),now.getMonth(),1),now];
+  if(p==='custom'){const f=$('#h-from').value||today(),t=$('#h-to').value||f;return [new Date(f+'T00:00:00'),new Date(t+'T23:59:59')];}
+  return [d0,now];}
+async function runHistory(){
+  const [from,to]=periodRange(),k=$('#h-cat').value,who=$('#h-who').value.trim().toLowerCase(),door=+$('#h-door').value;
+  $('#h-sum').textContent='Loading…';
   try{
-    const [users,evs]=await Promise.all([api('/users').catch(()=>[]),dayEvents(day)]);
-    const names={};users.forEach(u=>names[u.card_no]=u.name);
-    const log=evs.slice().sort((a,b)=>a.time<b.time?-1:1), P={};
-    let ins=0,outs=0,denied=0;
-    for(const e of log){
-      if(DENIED.test(e.event_name||'')){denied++;continue;}
-      const p=P[e.card_no]??={name:names[e.card_no]||'',card:e.card_no,first:'',last:'',passes:0,inside:0,since:null,now:''};
-      const t=new Date(e.time).getTime();p.passes++;
-      if(e.in_out==='in'){ins++;if(!p.first)p.first=e.time.slice(11,19);if(p.since===null)p.since=t;p.now='in';}
-      else{outs++;p.last=e.time.slice(11,19);if(p.since!==null){p.inside+=t-p.since;p.since=null;}p.now='out';}
-    }
-    const today=day===new Date().toLocaleDateString('en-CA');
-    const people=Object.values(P).sort((a,b)=>a.name.localeCompare(b.name));
-    people.forEach(p=>{if(p.since!==null&&today)p.inside+=Date.now()-p.since;});
-    AT={people,log,day,names};
-    $('#at-stats').innerHTML=[['People',people.length],['Inside now',today?people.filter(p=>p.now==='in').length:'—'],['Entries · exits',ins+' · '+outs],['Refused',denied]]
-      .map(([l,n])=>`<div class="card stat"><div class="n">${esc(n)}</div><div class="l">${l}</div></div>`).join('');
-    $('#at-people').innerHTML=people.length?people.map(p=>`<tr><td>${esc(p.name||'(unknown card)')}</td><td class="mono">${esc(p.card)}</td><td class="mono">${esc(p.first||'—')}</td><td class="mono">${esc(p.last||'—')}</td><td class="mono">${p.passes}</td><td class="mono">${hms(p.inside)}</td><td>${p.now==='in'?'<span class="ev-in">▸ inside</span>':'<span class="ev-out">◂ left</span>'}</td></tr>`).join('')
+    if(!Object.keys(NAMES).length)await refreshNames();
+    const all=await eventsSince(from);
+    HIST=all.filter(e=>{const t=new Date(e.time);if(t<from||t>to)return false;
+      if(door&&e.door!==door)return false;
+      if(who&&!((NAMES[e.card_no]||'').toLowerCase().includes(who)||String(e.card_no||'').includes(who)))return false;
+      const den=DENIED.test(e.event_name||'');
+      return k==='all'||(k==='granted'&&cat(e)==='access'&&!den)||(k==='refused'&&den)||(k==='exceptions'&&exceptional(e))||k===cat(e);
+    }).sort((a,b)=>a.time<b.time?1:-1);
+    $('#h-sum').textContent=`${HIST.length} event${HIST.length===1?'':'s'}, ${from.toLocaleString()} – ${to.toLocaleString()}${HIST.length>2000?' (first 2000 shown; export has all)':''}`;
+    $('#h-body').innerHTML=HIST.length?HIST.slice(0,2000).map(e=>`<tr>${fullRow(e)}</tr>`).join(''):'<tr><td class="empty" colspan="9">No events match.</td></tr>';
+  }catch(e){$('#h-sum').textContent=e.message;}
+}
+function csvHistory(){csv('events-'+today()+'.csv',[['date','time','event','name','card','door','reader','direction','raw'],...HIST.map(e=>[(e.time||'').slice(0,10),(e.time||'').slice(11,19),e.event_name,NAMES[e.card_no]||'',e.card_no,e.door,e.reader,e.in_out,e.raw])]);}
+const syncCustom=()=>$$('.h-custom').forEach(x=>x.style.display=$('#h-period').value==='custom'?'':'none');
+
+/* ---- attendance: granted in/out passes per person for one day ---- */
+let AT={people:[],log:[],day:''};
+function hms(ms){const m=Math.round(ms/60000);return m<1?'—':Math.floor(m/60)+'h '+String(m%60).padStart(2,'0')+'m';}
+function summarize(evs,isToday){
+  const log=evs.slice().sort((a,b)=>a.time<b.time?-1:1),P={};let ins=0,outs=0,denied=0;
+  for(const e of log){
+    if(DENIED.test(e.event_name||'')){denied++;continue;}
+    const p=P[e.card_no]??={name:NAMES[e.card_no]||'',card:e.card_no,first:'',last:'',passes:0,inside:0,since:null,now:''};
+    const t=new Date(e.time).getTime();p.passes++;
+    if(e.in_out==='in'){ins++;if(!p.first)p.first=e.time.slice(11,19);if(p.since===null)p.since=t;p.now='in';}
+    else{outs++;p.last=e.time.slice(11,19);if(p.since!==null){p.inside+=t-p.since;p.since=null;}p.now='out';}
+  }
+  const people=Object.values(P).sort((a,b)=>a.name.localeCompare(b.name));
+  if(isToday)people.forEach(p=>{if(p.since!==null)p.inside+=Date.now()-p.since;});
+  return {people,log,ins,outs,denied};
+}
+async function loadAttendance(){
+  const day=$('#at-day').value||today();
+  try{
+    if(!Object.keys(NAMES).length)await refreshNames();
+    const isToday=day===today(),s=summarize(await dayEvents(day),isToday);
+    AT={...s,day};
+    $('#at-stats').innerHTML=kpis([['People',s.people.length],['Inside now',isToday?s.people.filter(p=>p.now==='in').length:'—'],['Entries · exits',s.ins+' · '+s.outs],['Refused',s.denied]]);
+    $('#at-people').innerHTML=s.people.length?s.people.map(p=>`<tr><td>${esc(p.name||'(unknown card)')}</td><td class="mono">${esc(p.card)}</td><td class="mono">${esc(p.first||'—')}</td><td class="mono">${esc(p.last||'—')}</td><td class="mono">${p.passes}</td><td class="mono">${hms(p.inside)}</td><td>${p.now==='in'?'<span class="in">Inside</span>':'<span class="out">Left</span>'}</td></tr>`).join('')
       :'<tr><td class="empty" colspan="7">No entries or exits on this day.</td></tr>';
-    $('#at-log').innerHTML=log.length?log.slice().reverse().slice(0,300).map(e=>{const d=DENIED.test(e.event_name||'');
-      return `<tr><td class="mono">${esc(e.time.slice(11,19))}</td><td>${esc(names[e.card_no]||'')}</td><td class="mono">${esc(e.card_no)}</td><td>${e.in_out==='in'?'<span class="ev-in">▸ in</span>':'<span class="ev-out">◂ out</span>'}</td><td class="${d?'ev-deny':''}">${esc(d?e.event_name:'granted')}</td></tr>`;}).join('')
+    $('#at-log').innerHTML=s.log.length?s.log.slice().reverse().slice(0,300).map(e=>{const d=DENIED.test(e.event_name||'');
+      return `<tr><td class="mono">${esc(e.time.slice(11,19))}</td><td>${esc(NAMES[e.card_no]||'')}</td><td class="mono">${esc(e.card_no)}</td><td>${dirCell(e)}</td><td class="${d?'err':''}">${esc(d?e.event_name:'Granted')}</td></tr>`;}).join('')
       :'<tr><td class="empty" colspan="5">Nothing recorded yet.</td></tr>';
   }catch(e){toast(e.message,'err');}
 }
+const csvSummary=()=>csv('attendance-'+AT.day+'.csv',[['date','name','card','first_in','last_out','passes','time_inside'],...AT.people.map(p=>[AT.day,p.name,p.card,p.first,p.last,p.passes,hms(p.inside)])]);
+const csvLog=()=>csv('passes-'+AT.day+'.csv',[['date','time','name','card','direction','result'],...AT.log.map(e=>[AT.day,e.time.slice(11,19),NAMES[e.card_no]||'',e.card_no,e.in_out,DENIED.test(e.event_name||'')?e.event_name:'granted'])]);
 function csv(file,rows){const s=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+s],{type:'text/csv'}));a.download=file;a.click();URL.revokeObjectURL(a.href);}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿'+s],{type:'text/csv'}));a.download=file;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 
 /* ---- access rules ---- */
 const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-let ACCESS={roles:[],cfg:{}}, decTimer=null;
+let ACCESS={roles:[],cfg:{}};
 function loadAccess(){
-  // build day checkboxes once
   if(!$('#r-days').dataset.done){$('#r-days').innerHTML=DAYNAMES.map((d,i)=>`<label><input type="checkbox" value="${i}"> ${d}</label>`).join('');$('#r-days').dataset.done='1';}
   Promise.all([api('/roles'),api('/access/config')]).then(([roles,cfg])=>{
     ACCESS.roles=roles;ACCESS.cfg=cfg;
-    $('#enf-on').checked=!!cfg.enabled;
-    $('#holidays').value=(cfg.holidays||[]).join('\n');
-    $('#swapio').checked=!!cfg.swap_in_out;
-    renderRoles();
-    if(!$('#r-name').value)clearRole();
+    $('#enf-on').checked=!!cfg.enabled;$('#holidays').value=(cfg.holidays||[]).join('\n');$('#swapio').checked=!!cfg.swap_in_out;
+    renderRoles();if(!$('#r-name').value)clearRole();
   }).catch(e=>toast(e.message,'err'));
-  startDecisionPoll();
 }
 function renderRoles(){
-  const tb=$('#rolebody');
-  tb.innerHTML=ACCESS.roles.map(r=>{
-    const win=(r.windows||[]).map(w=>`${w.direction} ${w.from}-${w.to}`).join(', ')||'—';
-    return `<tr><td><span class="badge b-${['none','student','teacher','administrator'].includes(r.name)?r.name:'none'}">${esc(r.name)}</span></td>
-      <td class="mono">${r.group}</td><td>${r.enforce?'enforced':'panel'}</td><td style="font-size:12px">${esc(win)}</td>
-      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-edit="${r.group}">Edit</button> ${r.group!==0?`<button class="btn sm danger" data-delrole="${r.group}">✕</button>`:''}</td></tr>`;
-  }).join('');
+  $('#rolebody').innerHTML=ACCESS.roles.map(r=>{const win=(r.windows||[]).map(w=>`${w.direction} ${w.from}–${w.to}`).join(', ')||'—';
+    return `<tr><td><span class="tag">${esc(r.name)}</span></td><td class="mono">${r.group}</td><td>${r.enforce?'Enforced':'Panel'}</td><td>${esc(win)}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn sm" data-edit="${r.group}">Edit</button> ${r.group!==0?`<button class="btn sm danger" data-delrole="${r.group}">Delete</button>`:''}</td></tr>`;}).join('');
   $$('#rolebody [data-edit]').forEach(b=>b.onclick=()=>editRole(+b.dataset.edit));
   $$('#rolebody [data-delrole]').forEach(b=>b.onclick=()=>delRole(+b.dataset.delrole));
 }
-function editRole(g){
-  const r=ACCESS.roles.find(x=>x.group===g);if(!r)return;
-  $('#editortitle').textContent='Edit: '+r.name;
-  $('#r-name').value=r.name;$('#r-group').value=r.group;$('#r-enforce').checked=!!r.enforce;
+function editRole(g){const r=ACCESS.roles.find(x=>x.group===g);if(!r)return;
+  $('#editortitle').textContent='Edit role: '+r.name;$('#r-name').value=r.name;$('#r-group').value=r.group;$('#r-enforce').checked=!!r.enforce;
   $('#r-open').value=r.open_seconds||5;$('#r-holiday').checked=!!r.block_holidays;
   const days=r.days||[];$$('#r-days input').forEach(c=>c.checked=days.includes(+c.value));
-  $('#r-windows').innerHTML='';(r.windows||[]).forEach(w=>addWindowRow(w));
-  if(!(r.windows||[]).length)addWindowRow();
-}
+  $('#r-windows').innerHTML='';(r.windows||[]).forEach(w=>addWindowRow(w));if(!(r.windows||[]).length)addWindowRow();}
 function clearRole(){
-  $('#editortitle').textContent='New role';
-  $('#r-name').value='';$('#r-group').value='';$('#r-enforce').checked=true;$('#r-open').value=5;$('#r-holiday').checked=true;
+  if(!$('#r-days').dataset.done)loadAccess();
+  $('#editortitle').textContent='New role';$('#r-name').value='';$('#r-group').value='';$('#r-enforce').checked=true;$('#r-open').value=5;$('#r-holiday').checked=true;
   $$('#r-days input').forEach(c=>c.checked=[0,1,2,3,4].includes(+c.value));
-  $('#r-windows').innerHTML='';addWindowRow({direction:'in',from:'07:00',to:'07:30'});
-}
-function addWindowRow(w){
-  w=w||{direction:'any',from:'08:00',to:'17:00'};
-  const div=document.createElement('div');div.className='row';div.style.marginBottom='6px';
-  div.innerHTML=`<select class="w-dir" style="flex:1"><option value="in">in</option><option value="out">out</option><option value="any">any</option></select>
-    <input class="w-from" value="${esc(w.from)}" placeholder="07:00" style="flex:1"><input class="w-to" value="${esc(w.to)}" placeholder="07:30" style="flex:1">
-    <button class="btn sm danger" style="flex:none">✕</button>`;
-  div.querySelector('.w-dir').value=w.direction;
-  div.querySelector('button').onclick=()=>div.remove();
-  $('#r-windows').append(div);
-}
+  $('#r-windows').innerHTML='';addWindowRow({direction:'in',from:'07:00',to:'07:30'});}
+function addWindowRow(w){w=w||{direction:'any',from:'08:00',to:'17:00'};
+  const d=document.createElement('div');d.className='row';d.style.marginBottom='5px';
+  d.innerHTML=`<select class="w-dir"><option value="in">in</option><option value="out">out</option><option value="any">any</option></select>
+    <input class="w-from" value="${esc(w.from)}" placeholder="07:00"><input class="w-to" value="${esc(w.to)}" placeholder="07:30"><button class="btn sm danger">Remove</button>`;
+  d.querySelector('.w-dir').value=w.direction;d.querySelector('button').onclick=()=>d.remove();$('#r-windows').append(d);}
 function collectRole(){
   const windows=$$('#r-windows .row').map(r=>({direction:r.querySelector('.w-dir').value,from:r.querySelector('.w-from').value.trim(),to:r.querySelector('.w-to').value.trim()})).filter(w=>w.from&&w.to);
-  return {name:$('#r-name').value.trim(),group:+$('#r-group').value,enforce:$('#r-enforce').checked,
-    open_seconds:+$('#r-open').value||5,block_holidays:$('#r-holiday').checked,
-    days:$$('#r-days input:checked').map(c=>+c.value),windows};
-}
-async function saveRole(){
-  const r=collectRole();
-  if(!r.name){toast('Role name required','err');return;}
-  try{await api('/roles',{method:'POST',body:JSON.stringify(r)});toast('Role saved: '+r.name,'ok');await refreshRoleOptions();loadAccess();}
-  catch(e){toast(e.message,'err');}
-}
+  return {name:$('#r-name').value.trim(),group:+$('#r-group').value,enforce:$('#r-enforce').checked,open_seconds:+$('#r-open').value||5,
+    block_holidays:$('#r-holiday').checked,days:$$('#r-days input:checked').map(c=>+c.value),windows};}
+async function saveRole(){const r=collectRole();if(!r.name){toast('Role name required','err');return;}
+  try{await api('/roles',{method:'POST',body:JSON.stringify(r)});toast('Role saved: '+r.name,'ok');await refreshRoleOptions();loadAccess();}catch(e){toast(e.message,'err');}}
 async function delRole(g){const r=ACCESS.roles.find(x=>x.group===g);if(!confirm('Delete role "'+(r?r.name:g)+'"?'))return;
   try{await api('/roles/'+g,{method:'DELETE'});toast('Role deleted','ok');await refreshRoleOptions();loadAccess();}catch(e){toast(e.message,'err');}}
-async function savePolicy(){
-  const holidays=$('#holidays').value.split('\n').map(s=>s.trim()).filter(Boolean);
-  try{await api('/access/config',{method:'PUT',body:JSON.stringify({enabled:$('#enf-on').checked,holidays,swap_in_out:$('#swapio').checked,reader_door:ACCESS.cfg.reader_door||{}})});toast('Policy saved','ok');loadAccess();}
-  catch(e){toast(e.message,'err');}
-}
+async function savePolicy(){const holidays=$('#holidays').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  try{await api('/access/config',{method:'PUT',body:JSON.stringify({enabled:$('#enf-on').checked,holidays,swap_in_out:$('#swapio').checked,reader_door:(ACCESS.cfg&&ACCESS.cfg.reader_door)||{}})});toast('Saved','ok');loadAccess();}
+  catch(e){toast(e.message,'err');}}
 function startDecisionPoll(){stopDecisionPoll();pollDecisions();decTimer=setInterval(pollDecisions,3000);}
 function stopDecisionPoll(){if(decTimer){clearInterval(decTimer);decTimer=null;}}
-async function pollDecisions(){try{const d=await api('/access/decisions?limit=40');const tb=$('#decbody');
-  if(!d.length){return;}
-  tb.innerHTML=d.map(x=>{const cls=x.action==='allow'?'ev-in':x.action==='deny'?'ev-deny':'';const t=(x.time||'').replace('T',' ').slice(11,19);
-    return `<tr><td class="mono">${esc(t)}</td><td class="mono">${esc(x.card_no)}</td><td>${esc(x.role)}</td><td>${esc(x.direction||'—')}</td><td class="${cls}">${esc(x.action)} · ${esc(x.reason)}</td></tr>`;}).join('');
-}catch(e){}}
-async function refreshRoleOptions(){try{const roles=await api('/roles');const sel=$('#c-role');const cur=sel.value;
-  sel.innerHTML=roles.map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');
-  if(cur)sel.value=cur;}catch(e){}}
+async function pollDecisions(){try{const d=await api('/access/decisions?limit=60');if(!d.length)return;
+  $('#decbody').innerHTML=d.map(x=>{const cls=x.action==='allow'?'ok':x.action==='deny'?'err':'';
+    return `<tr><td class="mono">${esc((x.time||'').slice(11,19))}</td><td class="mono">${esc(x.card_no)}</td><td>${esc(x.role)}</td><td>${esc(x.direction||'—')}</td><td class="${cls}">${esc(x.action)} · ${esc(x.reason)}</td></tr>`;}).join('');}catch(e){}}
+async function refreshRoleOptions(){try{const roles=await api('/roles');
+  $$('select.roles').forEach(sel=>{const cur=sel.value;sel.innerHTML=roles.map(r=>`<option value="${esc(r.name)}">${esc(r.name)}</option>`).join('');if(cur)sel.value=cur;});}catch(e){}}
 
-/* ---- config / boot ---- */
+/* ---- about ---- */
+function loadAbout(){$('#ab-kv').innerHTML=Object.entries({'Middleware version':CFG.version||'?','Panel':DEV?DEV.device_name:'—','Panel firmware':DEV?DEV.firmware:'—','Panel id':CFG.panel_id||'—','Writes':CFG.allow_writes?'Enabled':'Locked (ALLOW_WRITES=false)'}).map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');}
+
+/* ---- connection, status bar ---- */
 function applyCfg(){
-  $('#brandsub').textContent=CFG.panel_id||'access middleware';
-  $('#ver').textContent='v'+(CFG.version||'?');
   const wb=$('#wbanner');
-  if(!CFG.allow_writes){wb.classList.add('show');wb.innerHTML='⚠ Writes are locked. Enrolling or revoking cards needs <span class="mono">ALLOW_WRITES=true</span> on the middleware.';$('#writehint').textContent='Writes locked (ALLOW_WRITES=false) — enroll will fail until enabled.';}
+  if(!CFG.allow_writes){wb.classList.add('show');wb.innerHTML='Writes are locked: adding or removing people needs <span class="mono">ALLOW_WRITES=true</span> on the middleware.';$('#writehint').textContent='Writes are locked (ALLOW_WRITES=false); saving will fail until they are enabled.';}
   else{wb.classList.remove('show');$('#writehint').textContent='';}
-  buildDoorBtns(2);
+  $('#sb-writes').textContent='Writes: '+(CFG.allow_writes?'enabled':'locked');
+  buildDoorBtns((DEV&&DEV.doors)||2);buildDoorChecks();
 }
+let wasUp=null;
 async function ping(){
-  try{const c=await api('/config');CFG=c;applyCfg();$('#conn-dot').className='dot '+(c.panel_connected?'up':'down');$('#conn-txt').textContent=c.panel_connected?'panel online':'panel offline';}
-  catch(e){$('#conn-dot').className='dot down';$('#conn-txt').textContent='no middleware';}
+  try{const c=await api('/config');CFG=c;
+    if(c.panel_connected&&(wasUp!==true||!DEV))DEV=await api('/device').catch(()=>DEV);
+    const changed=wasUp!==null&&wasUp!==c.panel_connected;
+    wasUp=c.panel_connected;applyCfg();
+    if(changed&&current==='home')loadHome();
+    $('#sb-led').className='led '+(c.panel_connected?'up':'down');
+    $('#sb-conn').textContent=c.panel_connected?'Panel online':'Panel offline';
+    $('#sb-panel').textContent='Panel: '+(DEV?DEV.device_name+(DEV.ip_address?' at '+DEV.ip_address:''):'—');
+  }catch(e){$('#sb-led').className='led down';$('#sb-conn').textContent='Middleware not reachable';}
 }
+const tick=()=>{$('#sb-clock').textContent=new Date().toLocaleString();};
 
-/* events */
-$('#enroll').onclick=enroll; $('#reloadcards').onclick=loadCards; $('#refresh').onclick=()=>go(location.hash.slice(1)||'overview');
-$('#t-load').onclick=loadTable; $('#p-get').onclick=getParams; $('#p-set').onclick=setParam;
-$('#refreshdoors').onclick=loadDoorStatus; $('#cancelalarm').onclick=async()=>{try{await api('/alarm/cancel',{method:'POST'});toast('Alarm cancelled','ok');}catch(e){toast(e.message,'err');}};
-$('#aux-on').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:true,seconds:+$('#a-sec').value||5})});toast('Aux on','ok');}catch(e){toast(e.message,'err');}};
-$('#aux-off').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:false})});toast('Aux off','ok');}catch(e){toast(e.message,'err');}};
-$('#timesync').onclick=async()=>{try{await api('/time/sync',{method:'POST'});toast('Clock synced','ok');}catch(e){toast(e.message,'err');}};
+/* ---- wiring ---- */
+$('#enroll').onclick=enroll;$('#c-clear').onclick=clearPerson;$('#c-filter').oninput=renderCards;
+$('#t-load').onclick=loadTable;$('#p-get').onclick=getParams;$('#p-set').onclick=setParam;
+$('#cancelalarm').onclick=async()=>{try{await api('/alarm/cancel',{method:'POST'});toast('Alarm cancelled','ok');}catch(e){toast(e.message,'err');}};
+$('#aux-on').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:true,seconds:+$('#a-sec').value||0})});toast('Output on','ok');}catch(e){toast(e.message,'err');}};
+$('#aux-off').onclick=async()=>{try{await api('/aux/'+(+$('#a-n').value||1),{method:'POST',body:JSON.stringify({on:false})});toast('Output back to normal','ok');}catch(e){toast(e.message,'err');}};
+$('#timesync').onclick=syncClock;
 $('#restart').onclick=async()=>{if(!confirm('Restart the panel? It will drop and reconnect.'))return;try{await api('/restart',{method:'POST'});toast('Panel restarting','ok');}catch(e){toast(e.message,'err');}};
-$('#streamtoggle').onclick=toggleStream; $('#clearev').onclick=()=>$('#evbody').innerHTML='<tr><td class="empty" colspan="6">Cleared.</td></tr>';
-$('#theme').onclick=()=>{const c=document.documentElement.getAttribute('data-theme');const sys=matchMedia('(prefers-color-scheme:dark)').matches;const dark=c?c==='dark':sys;document.documentElement.setAttribute('data-theme',dark?'light':'dark');localStorage.setItem('c3_theme',dark?'light':'dark');};
-$('#s-save').onclick=()=>{store.base=$('#s-base').value.trim();store.k=$('#s-key').value.trim();toast('Saved','ok');ping();go('overview');};
-$('#reloadaccess').onclick=loadAccess; $('#newrole').onclick=clearRole; $('#clearrole').onclick=clearRole;
-$('#addwindow').onclick=()=>addWindowRow(); $('#saverole').onclick=saveRole; $('#savepolicy').onclick=savePolicy;
-$('#enf-on').onchange=savePolicy;
+$('#s-save').onclick=()=>{store.base=$('#s-base').value.trim();store.k=$('#s-key').value.trim();toast('Saved','ok');ping();go('home');};
+$('#newrole').onclick=clearRole;$('#clearrole').onclick=clearRole;$('#addwindow').onclick=()=>addWindowRow();$('#saverole').onclick=saveRole;
+$('#savepolicy').onclick=savePolicy;$('#enf-on').onchange=savePolicy;
 $('#disc-run').onclick=runDiscover;
-$('#at-day').value=new Date().toLocaleDateString('en-CA'); $('#at-day').onchange=loadAttendance; $('#at-load').onclick=loadAttendance;
-$('#at-csv-sum').onclick=()=>csv('attendance-'+AT.day+'.csv',[['date','name','card','first_in','last_out','passes','time_inside'],...AT.people.map(p=>[AT.day,p.name,p.card,p.first,p.last,p.passes,hms(p.inside)])]);
-$('#at-csv-log').onclick=()=>csv('passes-'+AT.day+'.csv',[['date','time','name','card','direction','result'],...AT.log.map(e=>[AT.day,e.time.slice(11,19),AT.names[e.card_no]||'',e.card_no,e.in_out,DENIED.test(e.event_name||'')?e.event_name:'granted'])]);
+$('#at-day').value=today();$('#at-day').onchange=loadAttendance;
+$('#h-run').onclick=runHistory;$('#h-period').onchange=()=>{syncCustom();runHistory();};$('#h-cat').onchange=()=>{historyTitle();runHistory();};
+$('#h-from').value=$('#h-to').value=today();syncCustom();
+$('#im-file').onchange=e=>{const f=e.target.files[0];if(!f)return;f.text().then(t=>{$('#im-text').value=t;previewImport();});};
+$('#im-preview').onclick=previewImport;$('#im-template').onclick=csvTemplate;$('#im-run').onclick=runImport;$('#im-reset').onclick=()=>{IMPORT=[];renderImport();};
+$('#rg-add').onclick=addRange;
+addEventListener('hashchange',()=>{const h=location.hash.slice(1);if(h&&h!==current)go(h);});
+$('#d-pause').onclick=togglePause;$('#d-clear').onclick=clearEvents;$('#d-min').onclick=toggleDock;
 
-/* init */
-const th=localStorage.getItem('c3_theme');if(th)document.documentElement.setAttribute('data-theme',th);
+/* ---- start ---- */
+const th=localStorage.getItem('c3_theme');if(th)document.documentElement.dataset.theme=th;
+if((localStorage.getItem('ui_mode')||'simple')==='simple')document.body.classList.add('simple');
+if(localStorage.getItem('ui_dock')==='min'){$('#dock').classList.add('min');$('#d-min').textContent='Show';}
 $('#s-base').value=store.base;$('#s-key').value=store.k;
-const startPage=location.hash.slice(1);
-go(startPage||'overview');
-ping();refreshRoleOptions();setInterval(ping,10000);
-api('/device').then(d=>{$$('#c-doors input').forEach(i=>{if(+i.value>(d.doors||4))i.closest('label').remove();}); // offer only the panel's doors
-  if(!startPage&&/^AC-215/.test(d.device_name||''))go('discover');}).catch(()=>{}); // a Rosslare panel starts at discovery
+markMenus();tick();setInterval(tick,1000);
+(async()=>{
+  await ping();await refreshNames();refreshRoleOptions();
+  const start=location.hash.slice(1);
+  go(start||(DEV&&/^AC-215/.test(DEV.device_name||'')&&!CFG.panel_connected?'discover':'home'));
+  setInterval(ping,10000);setInterval(refreshNames,60000);
+  stream();
+})();
 </script>
 </body>
 </html>

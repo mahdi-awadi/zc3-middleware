@@ -102,14 +102,22 @@ curl -N localhost:8080/events   # live event stream (SSE)
 
 A full admin UI is **embedded in the binary** and served same-origin at
 **<http://localhost:8080/ui>** (the root `/` redirects there). No build step, no
-separate deploy. It manages every part of the API:
+separate deploy. Its layout follows the vendor tools: a menu bar (File / View /
+Tools / Help), a toolbar that changes with the page, a tree in the ZKAccess 3.5
+module order (Devices, Personnel, Access control, Monitoring, Reports, System), an
+AxTraxNG-style event log docked at the bottom and a status bar. **Simple** mode
+(default) shows the everyday items and a four-step start page; **Advanced** adds
+access rules, the event log panel, raw data and device tools. It manages every
+part of the API:
 
 - **Discover** — find the adapter and the panels on its RS-485 bus, step by step (Rosslare)
 - **Overview** — device identity, live door status, service metrics
 - **Live events** — realtime swipe stream (SSE)
 - **Attendance** — per person per day: first in, last out, passes, time inside, who is
   inside now, and the entry / exit log; CSV export
-- **Cards & roles** — enrol / revoke, assign role (student / teacher / administrator / custom)
+- **People & cards** — enrol / edit / revoke, search, assign role (student / teacher / administrator / custom)
+- **Import / export** — people from a CSV (Excel) file or a range of card numbers, export to CSV
+- **Event history / Exceptions** — filter by period, kind, person and door; CSV export and print
 - **Access rules** — create roles with time windows, holidays, and days; live decisions
 - **Doors** — pulse relays, aux outputs, cancel alarm, live status
 - **Data tables** — read any panel table
