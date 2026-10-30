@@ -289,18 +289,19 @@
       <p class="lead">The same method as AxTraxNG's "Find Panels", run from this middleware.</p>
       <div class="grid g3">
         <div class="box"><div class="bh">1. Adapter on the network</div><div class="bb">
-          <div class="hint" style="margin:0 0 8px">Sends <span class="mono">www.usr.cn</span> to UDP 48899, as a broadcast and to the configured host. USR adapters (USR-W610) answer with IP and MAC.</div>
+          <div class="hint" style="margin:0 0 8px">Sends <span class="mono">www.usr.cn</span> to UDP 48899 as a broadcast on every network. USR adapters (USR-W610) answer with IP and MAC.</div>
           <div id="disc-1"><div class="empty">Not run yet.</div></div></div></div>
         <div class="box"><div class="bh">2. RS-485 port</div><div class="bb">
-          <div class="hint" style="margin:0 0 8px">TCP to <span class="mono" id="disc-bus">PANEL_ADDR</span>, the adapter's serial port (9600 8N1, to L1/L2 on the panel).</div>
+          <div class="hint" style="margin:0 0 8px">TCP to each adapter's serial port (USR default 8899; 9600 8N1, to L1/L2 on the panel).</div>
+          <label for="disc-bus-in">Adapter address, if it isn't found</label><input id="disc-bus-in" class="mono" placeholder="10.10.100.254:8899" style="margin-bottom:8px">
           <div id="disc-2"><div class="empty">Not run yet.</div></div></div></div>
         <div class="box"><div class="bh">3. Ask every bus address</div><div class="bb">
           <div class="hint" style="margin:0 0 8px"><span class="mono">6A RequestFirmVer</span> to addresses 1–32 (DIP switches 4–8). A panel answers <span class="mono">EB</span> with its firmware.</div>
           <div id="disc-3"><div class="empty">Not run yet.</div></div></div></div>
       </div>
       <div class="box flush"><div class="bh">Panels found<span class="sp"></span><button class="btn sm pri" id="disc-run">Run discovery</button></div><div class="bb tw">
-        <table><thead><tr><th>Bus address</th><th>Firmware / loader</th><th>Reply</th><th>Status</th></tr></thead>
-        <tbody id="disc-found"><tr><td class="empty" colspan="4">Run discovery to scan the bus.</td></tr></tbody></table></div></div>
+        <table><thead><tr><th>Adapter</th><th>Bus address</th><th>Firmware / loader</th><th>Reply</th><th>Status</th></tr></thead>
+        <tbody id="disc-found"><tr><td class="empty" colspan="5">Run discovery to scan the bus.</td></tr></tbody></table></div></div>
       <div class="row"><button class="btn nogrow" onclick="go('people')">Next: add people</button></div>
     </section>
 
@@ -690,7 +691,7 @@ async function loadHome(){
   const [cfg,users,evs,acc]=await Promise.all([api('/config').catch(()=>null),api('/users').catch(()=>[]),dayEvents(today()).catch(()=>[]),api('/access/config').catch(()=>null)]);
   const s=summarize(evs,true);
   const set=(n,done,html)=>{$('#st'+n).classList.toggle('done',!!done);$('#h-s'+n).innerHTML=html;};
-  set(1,cfg&&cfg.panel_connected,cfg&&cfg.panel_connected?`Connected to <b>${esc(DEV?DEV.device_name:'the panel')}</b>${DEV&&DEV.firmware?'<br><span class="mono">'+esc(DEV.firmware)+'</span>':''}`:'<span class="err">No panel connected yet.</span> Check the adapter and run Find panels.');
+  set(1,cfg&&cfg.panel_connected,cfg&&cfg.panel_connected?`Connected to <b>${esc(DEV?DEV.device_name:'the panel')}</b>${DEV&&DEV.firmware?'<br><span class="mono">'+esc(DEV.firmware)+'</span>':''}`:'<span class="err">No panel connected yet.</span> Click Find panels, then Add the panel it finds.');
   set(2,users.length,users.length?`<b>${users.length}</b> people enrolled.`:'Nobody enrolled yet.');
   set(3,acc&&acc.enabled,acc&&acc.enabled?'Time rules are on for enforced roles.':'Optional. Without rules every enrolled card passes at any time.');
   set(4,s.ins+s.outs,`Today: <b>${s.ins}</b> entries, <b>${s.outs}</b> exits, <b>${s.people.filter(p=>p.now==='in').length}</b> inside now.`);
@@ -702,22 +703,39 @@ async function loadHome(){
 const kpis=a=>a.map(([l,n])=>`<div class="kpi"><b>${esc(n)}</b><span>${esc(l)}</span></div>`).join('');
 
 /* ---- find panels ---- */
+let DISC=null;
 async function runDiscover(){
   discRan=true;$('#disc-run').disabled=true;
-  $('#disc-1').innerHTML='<div class="empty">Asking the network…</div>';$('#disc-3').innerHTML='<div class="empty">Waiting…</div>';
+  $('#disc-1').innerHTML='<div class="empty">Asking the network…</div>';$('#disc-2').innerHTML='<div class="empty">Waiting…</div>';
+  $('#disc-3').innerHTML='<div class="empty">Asking addresses 1–32 on each adapter (about 15 s each)…</div>';
   try{
-    const cfg=await api('/config');
-    $('#disc-2').innerHTML=cfg.panel_connected?'<span class="ok">Connected</span>':'<span class="err">Not connected yet</span>';
-    $('#disc-3').innerHTML='<div class="empty">Asking addresses 1–32 (about 15 s)…</div>';
-    const d=await api('/discover',{method:'POST'});
-    $('#disc-bus').textContent=d.bus;
+    const d=DISC=await api('/discover',{method:'POST',body:JSON.stringify({bus:$('#disc-bus-in').value.trim()})});
     $('#disc-1').innerHTML=d.adapters.length?d.adapters.map(a=>`<div class="mono">${esc(a.ip)} · ${esc(a.mac)}${a.model?' · '+esc(a.model):''}</div>`).join('')
-      :'<div class="hint">No adapter answered (it may be on another subnet). The configured address is used.</div>';
-    $('#disc-3').innerHTML=`<span class="${d.panels.length?'ok':'err'}">${d.panels.length} panel${d.panels.length===1?'':'s'} answered</span>`;
-    $('#disc-found').innerHTML=d.panels.length?d.panels.map(p=>`<tr><td class="mono">${p.address}</td><td class="mono">${esc(p.firmware)}</td><td class="mono">${p.reply_ms} ms</td><td>${p.address===d.in_use?'<span class="ok">In use</span>':'Found'}</td></tr>`).join('')
-      :'<tr><td class="empty" colspan="4">No panel answered. Check L1/L2 (swap them if the TX LED stays dark), the DIP baud switches and the adapter\'s 9600 8N1 setting.</td></tr>';
-  }catch(e){$('#disc-3').innerHTML='<div class="err">'+esc(e.message)+'</div>';$('#disc-1').innerHTML='<div class="empty">—</div>';}
+      :'<div class="hint">No adapter answered (it may be on another subnet). Type its address in step 2.</div>';
+    $('#disc-2').innerHTML=d.buses.length?d.buses.map(b=>`<div class="mono">${esc(b.addr)} ${b.error?'<span class="err">'+esc(b.error)+'</span>':'<span class="ok">open</span>'}</div>`).join('')
+      :'<div class="hint">No adapter to scan.</div>';
+    const n=d.buses.reduce((s,b)=>s+b.panels.length,0);
+    $('#disc-3').innerHTML=`<span class="${n?'ok':'err'}">${n} panel${n===1?'':'s'} answered</span>`;
+    renderFound();
+  }catch(e){$('#disc-3').innerHTML='<div class="err">'+esc(e.message)+'</div>';$('#disc-1').innerHTML=$('#disc-2').innerHTML='<div class="empty">—</div>';}
   $('#disc-run').disabled=false;
+}
+function renderFound(){
+  const d=DISC,rows=d.buses.flatMap(b=>b.panels.map(p=>Object.assign({bus:b.addr},p)));
+  $('#disc-found').innerHTML=rows.length?rows.map(p=>`<tr><td class="mono">${esc(p.bus)}</td><td class="mono">${p.address}</td><td class="mono">${esc(p.firmware)}</td><td class="mono">${p.reply_ms} ms</td><td>${
+      p.bus===d.panel&&p.address===d.in_use?'<span class="ok">In use</span>':`<button class="btn sm pri" data-bus="${esc(p.bus)}" data-a="${p.address}">${d.panel?'Use this panel':'Add'}</button>`}</td></tr>`).join('')
+    :'<tr><td class="empty" colspan="5">No panel answered. Check L1/L2 (swap them if the TX LED stays dark), the DIP baud switches and the adapter\'s 9600 8N1 setting.</td></tr>';
+  $$('#disc-found button').forEach(b=>b.onclick=()=>addPanel(b.dataset.bus,+b.dataset.a));
+}
+async function addPanel(bus,address){
+  if(DISC.panel&&!confirm(`Switch to the panel at ${bus}, bus address ${address}? People stay in the list; save them again to write them to this panel.`))return;
+  try{
+    await api('/panel',{method:'POST',body:JSON.stringify({bus,address})});
+    DISC.panel=bus;DISC.in_use=address;renderFound();DEV=null;
+    toast('Panel added. Connecting…','ok');
+    for(let i=0;i<12&&!(CFG.panel_connected&&DEV);i++){await new Promise(r=>setTimeout(r,700));await ping();}
+    if(CFG.panel_connected&&DEV)toast('Connected to '+DEV.device_name,'ok');else toast('Added, but the panel has not answered yet','err');
+  }catch(e){toast(e.message,'err');}
 }
 
 /* ---- panel status ---- */

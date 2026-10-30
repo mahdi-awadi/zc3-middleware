@@ -17,10 +17,16 @@ import (
 
 // state is what the driver remembers, because the AC-215 has no known command to
 // read users or cards back: every card it wrote, by panel slot (user slot = card
-// slot), and the next event number to ask for.
+// slot), the next event number to ask for, and the panel added in the console.
 type state struct {
+	Panel     *savedPanel     `json:"panel,omitempty"`
 	NextEvent *int            `json:"next_event,omitempty"`
 	Cards     map[int]c3.Card `json:"cards"`
+}
+
+type savedPanel struct {
+	Bus     string `json:"bus"`     // adapter host:port
+	Address int    `json:"address"` // RS-485 bus address
 }
 
 func (c *Client) load() error {

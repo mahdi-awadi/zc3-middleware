@@ -83,49 +83,55 @@ func startFake(t *testing.T, addr byte) *fakePanel {
 	p := &fakePanel{ln: ln, addr: addr}
 	t.Cleanup(func() { ln.Close() })
 	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		r := bufio.NewReader(conn)
 		for {
-			hdr, err := r.Peek(11) // preamble, 6 header bytes, cmd
+			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
-			crc := hdr[10] != cmdRequestFirmVer
-			f, err := readFrame(r, crc)
-			if err != nil {
-				return
-			}
-			if p.addr != 0 && f.addr != p.addr {
-				continue // another address: silence, like an empty slot on the bus
-			}
-			p.mu.Lock()
-			p.got = append(p.got, f)
-			payload := []byte{ansAck}
-			switch f.cmd {
-			case cmdRequestFirmVer:
-				payload = append([]byte{ansFirmVer}, "ac215v04_08_23\x00\x00btl_ac225v_01_02\x11\xf3\x02\x10\x00\x00"...)
-			case cmdRequestEvents:
-				payload = []byte{ansEvents, 0}
-				if len(p.events) > 0 {
-					payload, p.events = p.events[0], p.events[1:]
-				}
-			}
-			p.mu.Unlock()
-			body := append([]byte{typeAnswer, f.addr, 0x02, 0x01, f.seq, byte(len(payload))}, payload...)
-			out := append(append([]byte{}, preamble...), body...)
-			if crc {
-				out = binary.BigEndian.AppendUint16(out, crc16(body))
-			} else {
-				out = append(out, sum8(body))
-			}
-			conn.Write(append(out, 0, 0))
+			go p.serve(conn)
 		}
 	}()
 	return p
+}
+
+func (p *fakePanel) serve(conn net.Conn) {
+	defer conn.Close()
+	r := bufio.NewReader(conn)
+	for {
+		hdr, err := r.Peek(11) // preamble, 6 header bytes, cmd
+		if err != nil {
+			return
+		}
+		crc := hdr[10] != cmdRequestFirmVer
+		f, err := readFrame(r, crc)
+		if err != nil {
+			return
+		}
+		if p.addr != 0 && f.addr != p.addr {
+			continue // another address: silence, like an empty slot on the bus
+		}
+		p.mu.Lock()
+		p.got = append(p.got, f)
+		payload := []byte{ansAck}
+		switch f.cmd {
+		case cmdRequestFirmVer:
+			payload = append([]byte{ansFirmVer}, "ac215v04_08_23\x00\x00btl_ac225v_01_02\x11\xf3\x02\x10\x00\x00"...)
+		case cmdRequestEvents:
+			payload = []byte{ansEvents, 0}
+			if len(p.events) > 0 {
+				payload, p.events = p.events[0], p.events[1:]
+			}
+		}
+		p.mu.Unlock()
+		body := append([]byte{typeAnswer, f.addr, 0x02, 0x01, f.seq, byte(len(payload))}, payload...)
+		out := append(append([]byte{}, preamble...), body...)
+		if crc {
+			out = binary.BigEndian.AppendUint16(out, crc16(body))
+		} else {
+			out = append(out, sum8(body))
+		}
+		conn.Write(append(out, 0, 0))
+	}
 }
 
 func (p *fakePanel) requests(cmd byte) (out [][]byte) {
@@ -153,13 +159,55 @@ func TestDiscovery(t *testing.T) {
 	if info, _ := cl.DeviceInfo(ctx); info.DeviceName != "AC-215 #3" {
 		t.Fatalf("connect found %q, want the panel on address 3", info.DeviceName)
 	}
-	res, err := cl.Discover(ctx)
+	res, err := cl.Discover(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := res.(Discovery)
-	if len(d.Panels) != 1 || d.Panels[0].Address != 3 || d.InUse != 3 || d.Panels[0].Firmware != "ac215v04_08_23 / btl_ac225v_01_02" {
+	if len(d.Buses) != 1 || len(d.Buses[0].Panels) != 1 || d.Buses[0].Panels[0].Address != 3 || d.InUse != 3 ||
+		d.Buses[0].Panels[0].Firmware != "ac215v04_08_23 / btl_ac225v_01_02" {
 		t.Fatalf("Discover = %+v", d)
+	}
+}
+
+// A middleware started with no panel finds one, waits in Connect until it is
+// added, connects to it, and remembers it after a restart.
+func TestAddPanel(t *testing.T) {
+	probeTimeout = 30 * time.Millisecond
+	p := startFake(t, 7)
+	bus := p.ln.Addr().String()
+	state := filepath.Join(t.TempDir(), "s.json")
+	cl, err := New("", WithTimeout(time.Second), WithStatePath(state))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	res, err := cl.Discover(ctx, bus)
+	if d := res.(Discovery); err != nil || d.Panel != "" || len(d.Buses) != 1 || len(d.Buses[0].Panels) != 1 || d.Buses[0].Panels[0].Address != 7 {
+		t.Fatalf("Discover = %+v, %v", d, err)
+	}
+	connected := make(chan error, 1)
+	go func() { connected <- cl.Connect(ctx) }()
+	select {
+	case err := <-connected:
+		t.Fatalf("Connect returned before a panel was added: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := cl.AddPanel(bus, 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-connected; err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := cl.DeviceInfo(ctx); info.DeviceName != "AC-215 #7" {
+		t.Fatalf("connected to %q", info.DeviceName)
+	}
+	again, err := New("", WithAddress(0), WithStatePath(state))
+	if err != nil || again.addr != bus || again.panelAddr != 7 || again.auto {
+		t.Fatalf("after restart: %q #%d auto=%v, %v", again.addr, again.panelAddr, again.auto, err)
+	}
+	if err := cl.AddPanel("no-port", 7); err == nil {
+		t.Fatal("AddPanel accepted an adapter without a port")
 	}
 }
 

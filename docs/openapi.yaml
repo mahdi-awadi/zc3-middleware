@@ -80,9 +80,18 @@ paths:
       tags: [Device]
       summary: Find adapters and panels (Rosslare only)
       description: >
-        Sends "www.usr.cn" to UDP 48899 (USR adapters answer with ip,mac), then
-        RequestFirmVer to RS-485 bus addresses 1-32 through PANEL_ADDR. Takes
-        about 13 s; event polling and door commands continue between probes.
+        Sends "www.usr.cn" to UDP 48899 as a broadcast on every network (USR
+        adapters answer with ip,mac), then RequestFirmVer to RS-485 bus addresses
+        1-32 behind the adapter in use and each adapter found (port 8899), or only
+        behind `bus` when given. About 13 s per adapter; event polling and door
+        commands continue between probes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { bus: { type: string, description: "adapter host:port to scan instead" } }
       responses:
         "200":
           description: What answered
@@ -96,15 +105,44 @@ paths:
                     items:
                       type: object
                       properties: { ip: { type: string }, mac: { type: string }, model: { type: string } }
-                  bus: { type: string, description: "adapter host:port that was scanned" }
-                  panels:
+                  buses:
                     type: array
                     items:
                       type: object
-                      properties: { address: { type: integer }, firmware: { type: string }, reply_ms: { type: integer } }
-                  in_use: { type: integer, description: "bus address the middleware talks to" }
+                      properties:
+                        addr: { type: string, description: "adapter host:port that was scanned" }
+                        error: { type: string, description: "why it could not be opened" }
+                        panels:
+                          type: array
+                          items:
+                            type: object
+                            properties: { address: { type: integer }, firmware: { type: string }, reply_ms: { type: integer } }
+                  panel: { type: string, description: "adapter of the panel in use, empty = none added yet" }
+                  in_use: { type: integer, description: "bus address of the panel in use" }
         "501": { description: The panel driver cannot discover (C3) }
         "502": { $ref: "#/components/responses/PanelError" }
+
+  /panel:
+    post:
+      tags: [Device]
+      summary: Add a found panel (Rosslare only)
+      description: >
+        Makes the panel at `address` behind adapter `bus` the one the middleware
+        runs, saved in ROSSLARE_STATE_PATH and used ahead of PANEL_ADDR from then on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bus, address]
+              properties:
+                bus: { type: string, example: "10.10.100.254:8899" }
+                address: { type: integer, minimum: 1, maximum: 32 }
+      responses:
+        "200": { $ref: "#/components/responses/OK" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "501": { description: The panel driver cannot add panels (C3) }
 
   /params:
     get:

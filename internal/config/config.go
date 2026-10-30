@@ -94,10 +94,10 @@ func Load() (Config, error) {
 }
 
 func (c Config) validate() error {
-	if c.PanelAddr == "" {
+	if c.PanelAddr == "" && c.PanelType != "rosslare" { // a Rosslare panel can be added in the console
 		return fmt.Errorf("config: PANEL_ADDR is required (host:port of the C3 panel)")
 	}
-	if !strings.Contains(c.PanelAddr, ":") {
+	if c.PanelAddr != "" && !strings.Contains(c.PanelAddr, ":") {
 		return fmt.Errorf("config: PANEL_ADDR must be host:port, got %q", c.PanelAddr)
 	}
 	switch c.PanelType {
@@ -109,7 +109,7 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("config: PANEL_TYPE must be c3|rosslare, got %q", c.PanelType)
 	}
-	if c.DoorDefaultSeconds <= 0|| c.DoorDefaultSeconds > 255 {
+	if c.DoorDefaultSeconds <= 0 || c.DoorDefaultSeconds > 255 {
 		return fmt.Errorf("config: DOOR_DEFAULT_SECONDS must be 1..255, got %d", c.DoorDefaultSeconds)
 	}
 	switch c.LogLevel {

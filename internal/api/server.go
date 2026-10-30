@@ -5,6 +5,7 @@
 //	GET    /healthz                 liveness
 //	GET    /device                  panel identity/params
 //	POST   /discover                find adapters + panels on the bus (Rosslare)
+//	POST   /panel                   {"bus":"ip:port","address":5} add a found panel (Rosslare)
 //	GET    /params?keys=a,b         read device params
 //	PUT    /params                  {"k":"v",...} set device params
 //	POST   /time/sync               sync panel clock to server time
@@ -97,6 +98,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /config", s.handleConfig)
 	mux.HandleFunc("GET /device", s.handleDevice)
 	mux.HandleFunc("POST /discover", s.handleDiscover)
+	mux.HandleFunc("POST /panel", s.handleAddPanel)
 	mux.HandleFunc("GET /params", s.handleGetParams)
 	mux.HandleFunc("PUT /params", s.handleSetParams)
 	mux.HandleFunc("POST /time/sync", s.handleTimeSync)
@@ -190,16 +192,42 @@ func (s *Server) handleDevice(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDiscover scans for adapters and panels, for drivers that can (Rosslare).
+// Optional body {"bus":"host:port"} scans that adapter only.
 func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	d, ok := s.panel.(interface {
-		Discover(context.Context) (any, error)
+		Discover(context.Context, string) (any, error)
 	})
 	if !ok {
 		writeJSON(w, 501, map[string]string{"error": "discovery is supported for Rosslare panels only"})
 		return
 	}
-	res, err := d.Discover(r.Context())
+	var body struct {
+		Bus string `json:"bus"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	res, err := d.Discover(r.Context(), strings.TrimSpace(body.Bus))
 	respond(w, res, err)
+}
+
+// handleAddPanel makes a discovered panel the one this middleware runs (Rosslare).
+func (s *Server) handleAddPanel(w http.ResponseWriter, r *http.Request) {
+	p, ok := s.panel.(interface{ AddPanel(string, int) error })
+	if !ok {
+		writeJSON(w, 501, map[string]string{"error": "adding a panel is supported for Rosslare panels only; set PANEL_ADDR"})
+		return
+	}
+	var body struct {
+		Bus     string `json:"bus"`
+		Address int    `json:"address"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := p.AddPanel(strings.TrimSpace(body.Bus), body.Address); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleGetParams(w http.ResponseWriter, r *http.Request) {

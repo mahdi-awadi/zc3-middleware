@@ -32,6 +32,7 @@ type Client struct {
 	allowWrites   bool
 	crc           bool
 	statePath     string
+	added         chan struct{} // AddPanel wakes a Connect that waits for a panel
 
 	mu         sync.Mutex
 	conn       net.Conn
@@ -79,21 +80,37 @@ func WithCRC(v bool) Option { return func(c *Client) { c.crc = v } }
 // (the AC-215 cannot be read back) and the event cursor.
 func WithStatePath(p string) Option { return func(c *Client) { c.statePath = p } }
 
-// New returns a client for the panel behind addr (host:port of the adapter). It
-// loads the state file, so a damaged file is reported here instead of overwritten.
+// New returns a client for the panel behind addr (host:port of the adapter; ""
+// = none yet, add one with AddPanel). It loads the state file, so a damaged file
+// is reported here instead of overwritten. A panel added in the console (saved
+// in the state file) wins over addr and WithAddress.
 func New(addr string, opts ...Option) (*Client, error) {
 	c := &Client{addr: addr, panelAddr: 1, timeout: 5 * time.Second, pollInterval: time.Second,
-		loc: time.Local, crc: true, statePath: "rosslare-state.json"}
+		loc: time.Local, crc: true, statePath: "rosslare-state.json", added: make(chan struct{}, 1)}
 	for _, o := range opts {
 		o(c)
 	}
-	return c, c.load()
+	if err := c.load(); err != nil {
+		return c, err
+	}
+	if p := c.st.Panel; p != nil {
+		c.addr, c.panelAddr, c.auto = p.Bus, byte(p.Address), false
+	}
+	return c, nil
 }
 
 var _ c3.Panel = (*Client)(nil)
 
-// Connect opens the TCP session and identifies the panel (RequestFirmVer).
+// Connect opens the TCP session and identifies the panel (RequestFirmVer). With
+// no panel set yet it waits until one is added.
 func (c *Client) Connect(ctx context.Context) error {
+	for c.bus() == "" {
+		select {
+		case <-c.added:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	saved := c.savedCursor() // before c.mu: SetCard takes smu then mu
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -143,6 +160,42 @@ func (c *Client) Connect(ctx context.Context) error {
 		c.startEvent = saved
 	}
 	return nil
+}
+
+func (c *Client) bus() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.addr
+}
+
+// AddPanel makes the panel on bus address `address` behind adapter `bus` the one
+// this middleware runs (the console's Add), saved in the state file so it is used
+// from then on. A session to another panel is closed; the supervisor reconnects.
+func (c *Client) AddPanel(bus string, address int) error {
+	if _, _, err := net.SplitHostPort(bus); err != nil || address < 1 || address > 32 {
+		return fmt.Errorf("rosslare: add needs the adapter as host:port and a bus address 1..32, got %q and %d", bus, address)
+	}
+	c.smu.Lock()
+	defer c.smu.Unlock()
+	c.mu.Lock()
+	same := c.addr == bus && int(c.panelAddr) == address
+	c.addr, c.panelAddr, c.auto = bus, byte(address), false
+	if !same && c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
+	c.mu.Unlock()
+	if !same {
+		// ponytail: one panel per state file; cards enrolled on the old panel stay
+		// listed, save them again to write them to this one.
+		c.st.NextEvent = nil // the event cursor belonged to the old panel
+	}
+	c.st.Panel = &savedPanel{Bus: bus, Address: address}
+	select {
+	case c.added <- struct{}{}:
+	default:
+	}
+	return c.save()
 }
 
 func (c *Client) Close() error {
@@ -241,14 +294,24 @@ type Found struct {
 	ReplyMs  int    `json:"reply_ms"`
 }
 
-// Discovery is what Discover saw, step by step: adapters on the network, the
-// adapter port the bus was scanned through, and the panels on that bus.
+// Bus is one adapter port that was scanned and the panels that answered on it.
+type Bus struct {
+	Addr   string  `json:"addr"`
+	Error  string  `json:"error,omitempty"`
+	Panels []Found `json:"panels"`
+}
+
+// Discovery is what Discover saw, step by step: adapters on the network, each
+// adapter port the bus was scanned through, and the panel in use.
 type Discovery struct {
 	Adapters []Adapter `json:"adapters"`
-	Bus      string    `json:"bus"`
-	Panels   []Found   `json:"panels"`
-	InUse    int       `json:"in_use"` // bus address this middleware talks to
+	Buses    []Bus     `json:"buses"`
+	Panel    string    `json:"panel"`  // adapter of the panel in use, "" = none added yet
+	InUse    int       `json:"in_use"` // its bus address
 }
+
+// usrPort is the USR adapters' default TCP server port; their discovery answer has no port.
+const usrPort = "8899"
 
 // findAdapters sends USR's discovery packet "www.usr.cn" to UDP 48899, as a
 // broadcast and straight to host, and collects the "ip,mac,model" answers.
@@ -258,7 +321,21 @@ func findAdapters(host string, wait time.Duration) []Adapter {
 		return nil
 	}
 	defer conn.Close()
-	for _, h := range []string{"255.255.255.255", host} {
+	// Windows sends 255.255.255.255 out of one interface only (on the test laptop
+	// WSL's virtual adapter), so every IPv4 network also gets its own broadcast.
+	targets := []string{"255.255.255.255", host}
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+				b := make(net.IP, 4)
+				for i := range b {
+					b[i] = n.IP.To4()[i] | ^n.Mask[len(n.Mask)-4+i]
+				}
+				targets = append(targets, b.String())
+			}
+		}
+	}
+	for _, h := range targets {
 		if ip := net.ParseIP(h); ip != nil {
 			_, _ = conn.WriteToUDP([]byte("www.usr.cn"), &net.UDPAddr{IP: ip, Port: 48899})
 		}
@@ -286,26 +363,70 @@ func findAdapters(host string, wait time.Duration) []Adapter {
 }
 
 // Discover runs AxTraxNG's "Find Panels" method: find the adapters, then send
-// identify to every bus address 1-32 through the connected adapter. Each probe
-// takes the bus on its own, so event polling and door commands go on in between.
-func (c *Client) Discover(ctx context.Context) (any, error) {
-	host, _, _ := net.SplitHostPort(c.addr)
-	d := Discovery{Adapters: findAdapters(host, time.Second), Bus: c.addr, Panels: []Found{}}
-	for a := byte(1); a <= 32 && ctx.Err() == nil; a++ {
-		start := time.Now()
-		c.mu.Lock()
-		data, err := c.exchangeTo(a, cmdRequestFirmVer, nil, ansFirmVer, probeTimeout, 1)
-		d.InUse = int(c.panelAddr)
-		connected := c.conn != nil
-		c.mu.Unlock()
-		if !connected {
-			return nil, errors.New("rosslare: not connected to the adapter")
+// identify to every bus address 1-32 behind bus, or, with bus "", behind the
+// adapter in use and every adapter found.
+func (c *Client) Discover(ctx context.Context, bus string) (any, error) {
+	c.mu.Lock()
+	cur, inUse := c.addr, int(c.panelAddr)
+	c.mu.Unlock()
+	host, _, _ := net.SplitHostPort(cur)
+	d := Discovery{Adapters: findAdapters(host, time.Second), Buses: []Bus{}, Panel: cur}
+	if cur != "" {
+		d.InUse = inUse
+	}
+	buses := []string{bus}
+	if bus == "" {
+		buses = nil
+		if cur != "" {
+			buses = append(buses, cur)
 		}
-		if err == nil && len(data) >= 32 {
-			d.Panels = append(d.Panels, Found{Address: int(a), Firmware: idName(data), ReplyMs: int(time.Since(start).Milliseconds())})
+		for _, a := range d.Adapters {
+			if a.IP != host {
+				buses = append(buses, net.JoinHostPort(a.IP, usrPort))
+			}
 		}
 	}
+	for _, b := range buses {
+		if ctx.Err() != nil {
+			break
+		}
+		found, err := c.scan(ctx, b)
+		r := Bus{Addr: b, Panels: found}
+		if err != nil {
+			r.Error = err.Error()
+		}
+		d.Buses = append(d.Buses, r)
+	}
 	return d, ctx.Err()
+}
+
+// scan sends identify to bus addresses 1-32 behind adapter bus: over the open
+// session when that is the adapter in use (each probe takes the bus on its own,
+// so event polling and door commands go on in between), else over a new connection.
+func (c *Client) scan(ctx context.Context, bus string) ([]Found, error) {
+	c.mu.Lock()
+	shared := c.addr == bus && c.conn != nil
+	c.mu.Unlock()
+	l := c
+	if !shared {
+		conn, err := (&net.Dialer{Timeout: c.timeout}).DialContext(ctx, "tcp", bus)
+		if err != nil {
+			return []Found{}, err
+		}
+		defer conn.Close()
+		l = &Client{addr: bus, conn: conn, r: bufio.NewReader(conn)}
+	}
+	found := []Found{}
+	for a := byte(1); a <= 32 && ctx.Err() == nil; a++ {
+		start := time.Now()
+		l.mu.Lock()
+		data, err := l.exchangeTo(a, cmdRequestFirmVer, nil, ansFirmVer, probeTimeout, 1)
+		l.mu.Unlock()
+		if err == nil && len(data) >= 32 {
+			found = append(found, Found{Address: int(a), Firmware: idName(data), ReplyMs: int(time.Since(start).Milliseconds())})
+		}
+	}
+	return found, nil
 }
 
 // ---- capabilities ----
@@ -326,7 +447,7 @@ func (c *Client) GetParams(ctx context.Context, keys ...string) (map[string]stri
 	return nil, ErrUnsupported
 }
 func (c *Client) SetParams(ctx context.Context, kv map[string]string) error { return ErrUnsupported }
-func (c *Client) TableNames(ctx context.Context) ([]string, error)         { return nil, ErrUnsupported }
+func (c *Client) TableNames(ctx context.Context) ([]string, error)          { return nil, ErrUnsupported }
 func (c *Client) GetTable(ctx context.Context, name string) ([]map[string]string, error) {
 	return nil, ErrUnsupported
 }
